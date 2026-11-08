@@ -65,17 +65,15 @@ flowchart LR
 
 处理权超时由消费者后续领取时恢复，监控查询不会触发恢复。旧凭证不能确认新领取；重复执行仍需由消费回调通过幂等处理。
 
-## 环境与构建
+## 环境要求
 
 要求 Java 17 及以上、Maven、Redis 6.2 及以上。Spring Boot 模块基于 3.5.16，Redis 客户端基于 Redisson 3.52.0。
 
-```bash
-mvn clean install
-```
+## Maven 引用
 
-此命令构建并安装构件到本地 Maven 仓库。其他机器使用前需自行构建，或从已发布该组件的 Maven 仓库获取依赖。Maven Central 发布配置与维护者操作步骤见[发布说明](docs/发布说明.md)；是否已发布需以 Central 实际可用版本为准。
+`0.1.0` 已发布到 Maven Central。使用默认的 Maven Central 仓库即可，在项目 `pom.xml` 的 `<dependencies>` 中按需添加以下一个组件。
 
-Spring Boot 应用引用：
+### Spring Boot 应用
 
 ```xml
 <dependency>
@@ -85,7 +83,43 @@ Spring Boot 应用引用：
 </dependency>
 ```
 
-应用须提供一个 `RedissonClient` Bean。组件复用该客户端，不修改其连接配置，不创建或关闭应用持有的客户端。引入依赖后自动提供 `RedisMq` Bean；声明监听器后才启动消费线程。
+starter 已包含核心模块。Spring Boot 应用须提供一个 `RedissonClient` Bean；组件复用该客户端，不修改其连接配置，不创建或关闭应用持有的客户端。引入依赖后自动提供 `RedisMq` Bean；声明监听器后才启动消费线程。
+
+### Spring Boot 应用与监控看板
+
+需要内嵌监控看板时，使用以下依赖，它已包含 starter 与核心模块：
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-dashboard</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+应用同样须提供 `RedissonClient` Bean。看板默认关闭，启用方式见[内嵌监控看板](#内嵌监控看板)。
+
+### 普通 Java 应用
+
+普通 Java 应用可单独引用核心模块，由应用提供并管理 `RedissonClient`：
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-core</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+## 从源码构建
+
+本地开发或修改源码时，可构建并安装到本机 Maven 仓库：
+
+```bash
+mvn clean install
+```
+
+维护者发布到 Maven Central 的操作步骤见[发布说明](docs/发布说明.md)。
 
 ## 发送消息
 

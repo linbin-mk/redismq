@@ -65,17 +65,15 @@ flowchart LR
 
 Expired leases are recovered by later consumer receive operations, not by dashboard queries. Old receipts cannot acknowledge a new delivery. Consumer callbacks must still handle duplicate execution through idempotency.
 
-## Requirements and build
+## Requirements
 
 Requires Java 17+, Maven, and Redis 6.2+. The Spring Boot modules use Spring Boot 3.5.16 and Redisson 3.52.0.
 
-```bash
-mvn clean install
-```
+## Maven dependencies
 
-This builds and installs the artifacts into the local Maven repository. Other machines must build them or use a Maven repository where the artifacts have been published. Maintainer instructions for publishing to Maven Central are in the [publishing guide](docs/发布说明.md), currently in Chinese. Check Central for available releases before using a published dependency.
+Version `0.1.0` is available on Maven Central. Use the default Maven Central repository and add one of the following components to `<dependencies>` in your application's `pom.xml`.
 
-For a Spring Boot application:
+### Spring Boot application
 
 ```xml
 <dependency>
@@ -85,7 +83,43 @@ For a Spring Boot application:
 </dependency>
 ```
 
-The application must provide a `RedissonClient` bean. The component reuses this client without changing its connection settings or taking ownership of its lifecycle. Auto-configuration supplies a `RedisMq` bean; consumer threads start only when listeners are registered.
+The starter includes the core module. The Spring Boot application must provide a `RedissonClient` bean. The component reuses this client without changing its connection settings or taking ownership of its lifecycle. Auto-configuration supplies a `RedisMq` bean; consumer threads start only when listeners are registered.
+
+### Spring Boot application with the dashboard
+
+For the embedded monitoring dashboard, use the following dependency, which includes both the starter and core:
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-dashboard</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+The application must also provide a `RedissonClient` bean. The dashboard is disabled by default; see [Embedded dashboard](#embedded-dashboard) to enable it.
+
+### Plain Java application
+
+Plain Java applications can depend on the core module and supply and manage their own `RedissonClient`:
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-core</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+## Build from source
+
+For local development or source changes, build and install the artifacts into your local Maven repository:
+
+```bash
+mvn clean install
+```
+
+Maintainer instructions for publishing to Maven Central are in the [publishing guide](docs/发布说明.md), currently in Chinese.
 
 ## Send messages
 
