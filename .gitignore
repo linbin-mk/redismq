@@ -1,0 +1,22 @@
+# 构建产物
+**/target/
+/dist/
+*.log
+
+# 编辑器和操作系统
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# 本机配置及凭据
+.env
+.env.*
+!.env.example
+application-local.*
+settings-local.xml
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks

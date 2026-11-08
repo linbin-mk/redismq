@@ -1,0 +1,18 @@
+Redis MQ
+本项目自有代码采用 MIT 协议，完整条款见随附 LICENSE。
+
+第三方依赖保留各自的版权和许可证，不因本项目采用 MIT 而改变。
+本项目通过 Maven 引用依赖，不将第三方依赖类或源码合并进组件 JAR。
+
+主要直接依赖：
+- Redisson：Apache License 2.0
+  https://github.com/redisson/redisson
+- Spring Boot、Spring Framework、Spring Security：Apache License 2.0
+  https://spring.io/projects
+- Jackson Databind：Apache License 2.0
+  https://github.com/FasterXML/jackson-databind
+- JUnit Jupiter（仅测试）：Eclipse Public License 2.0
+  https://junit.org/junit5/
+
+此清单不替代各依赖构件的许可证、NOTICE 或完整传递依赖清单。
+分发组合应用时，应一并保留实际分发依赖所要求的许可证和声明。

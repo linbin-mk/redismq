@@ -1,0 +1,49 @@
+package com.mk.mq.spring;
+
+import com.mk.mq.ConsumerOptions;
+import com.mk.mq.MqOptions;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
+
+@ConfigurationProperties("redis-mq")
+public class RedisMqProperties {
+    private boolean enabled = true;
+    private boolean listenersEnabled = true;
+    private String namespace;
+    private int maxQueueSize = 100000;
+    private int maxMessageBytes = 65536;
+    private Duration idempotencyRetention = Duration.ofHours(24);
+    private int concurrency = 4;
+    private Duration visibility = Duration.ofSeconds(60);
+    private Duration maxProcessingTime = Duration.ofMinutes(5);
+    private Duration pollInterval = Duration.ofMillis(500);
+    private Duration shutdownTimeout = Duration.ofSeconds(30);
+
+    public MqOptions mqOptions() { return new MqOptions(maxQueueSize, maxMessageBytes, idempotencyRetention); }
+    public ConsumerOptions consumerOptions(int overrideConcurrency) {
+        return new ConsumerOptions(overrideConcurrency == 0 ? concurrency : overrideConcurrency, visibility, maxProcessingTime, pollInterval, shutdownTimeout);
+    }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public boolean isListenersEnabled() { return listenersEnabled; }
+    public void setListenersEnabled(boolean listenersEnabled) { this.listenersEnabled = listenersEnabled; }
+    public String getNamespace() { return namespace; }
+    public void setNamespace(String namespace) { this.namespace = namespace; }
+    public int getMaxQueueSize() { return maxQueueSize; }
+    public void setMaxQueueSize(int value) { maxQueueSize = value; }
+    public int getMaxMessageBytes() { return maxMessageBytes; }
+    public void setMaxMessageBytes(int value) { maxMessageBytes = value; }
+    public Duration getIdempotencyRetention() { return idempotencyRetention; }
+    public void setIdempotencyRetention(Duration value) { idempotencyRetention = value; }
+    public int getConcurrency() { return concurrency; }
+    public void setConcurrency(int value) { concurrency = value; }
+    public Duration getVisibility() { return visibility; }
+    public void setVisibility(Duration value) { visibility = value; }
+    public Duration getMaxProcessingTime() { return maxProcessingTime; }
+    public void setMaxProcessingTime(Duration value) { maxProcessingTime = value; }
+    public Duration getPollInterval() { return pollInterval; }
+    public void setPollInterval(Duration value) { pollInterval = value; }
+    public Duration getShutdownTimeout() { return shutdownTimeout; }
+    public void setShutdownTimeout(Duration value) { shutdownTimeout = value; }
+}
