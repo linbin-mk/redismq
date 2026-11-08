@@ -273,7 +273,7 @@ Java interruption cannot forcibly terminate code that ignores it. Applications m
 
 A successful write means Redis accepted it; this version does not add `WAIT` / `WAITAOF` synchronization barriers. Durability depends on Redis persistence, replication, and failover settings. Cache eviction must not remove queue state. Atomic Lua execution does not imply rollback after a runtime error.
 
-The message format version is 1. Redis Cluster keys are designed for single-slot queue operations; automatic sharding of a queue is not provided. Validate Cluster, failover, and recovery behavior in the target deployment separately.
+New writes use message format version 2; reads remain compatible with version 1. Follow the [upgrade guide](docs/容量保护与升级.md) before upgrading existing queues. Redis Cluster keys are designed for single-slot queue operations; automatic sharding of a queue is not provided. Validate Cluster, failover, and recovery behavior in the target deployment separately.
 
 ## Tests and contributions
 
@@ -285,7 +285,7 @@ Original project code is licensed under [MIT](LICENSE), copyright linbin-mk. Mav
 
 ## Storage and bounded operations
 
-New messages use storage format 2: payloads are stored separately from metadata. Reads support format 1, but old and new clients must not run concurrently. Pause producers and consumers before upgrading existing data; migrate all three states with `migrateStorage(queue, state, offset, 10)`, advancing offset by the returned count until zero. Repeat safely if interrupted. Existing inline messages block new sends with `MQ_STORAGE_UPGRADE_REQUIRED` until migrated or drained. Do not downgrade clients after migration. The Chinese [upgrade guide](docs/容量保护与升级.md) includes an executable Java example and capacity sizing notes.
+New messages use storage format 2: payloads are stored separately from metadata. Reads support format 1, but old and new clients must not run concurrently. Pause producers, consumers, and administrative writes before upgrading existing data; migrate all three states with `migrateStorage(queue, state, offset, 10)`, advancing offset by the returned count until zero. Repeat safely if interrupted. Existing inline messages block new sends with `MQ_STORAGE_UPGRADE_REQUIRED` until migrated or drained. Do not downgrade clients after migration. The Chinese [upgrade guide](docs/容量保护与升级.md) includes an executable Java example and capacity sizing notes.
 
 `receive()` accepts an upper bound, returning at most 16 deliveries and 64 KiB of payload per call. A short batch does not indicate an empty queue. Full `deadMessages()` pages also have a 64 KiB payload budget; advance offset by the actual returned count. Metadata pages keep their normal pagination. Expired leases are recovered at most eight per call; expired deduplication entries are cleaned at most 32 per call. `stats()` additionally reports `payloadBytes` and `dedupEntries`.
 
