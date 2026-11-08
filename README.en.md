@@ -4,11 +4,22 @@
 
 A Redis-backed task queue for Java, with delayed delivery, competing consumers, acknowledgments, visibility timeouts, retries, and an optional read-only dashboard.
 
-- Version: `0.1.0`
+- Version: `0.2.0`
 - Java package: `com.mk.mq`
 - Maven groupId: `io.github.linbin-mk`
 - License: [MIT](LICENSE)
 - Main branch: `master`
+
+## What changed in 0.2.0
+
+- Separate payloads from metadata to reduce JSON work on receive, renewal and acknowledgment; each receive returns at most 16 messages and 64 KiB of payload.
+- Bound total payload bytes, deduplication entries and the queue directory; fix sends bypassing Redis OOM checks.
+- Remove canceled timer tasks immediately, enforce processing deadlines independently, and recover the Lua SHA cache automatically.
+- Gate releases on real Redis 6.2 / 7.4 integration, concurrent-load and OOM tests.
+
+**Upgrading from 0.1.0 requires a storage migration or draining queues with the old client first. Storage format 2 cannot run alongside old clients. Pause all producers, consumers and administrative writes during migration. Queue names no longer allow colons, and a JSON payload is limited to 64 KiB.**
+
+See the [changelog](CHANGELOG.md), [capacity and upgrade guide](docs/容量保护与升级.md), and [local validation results](docs/review-20261108/验收报告.md).
 
 ## Modules
 
@@ -71,7 +82,7 @@ Requires Java 17+, Maven, and Redis 6.2+. The Spring Boot modules use Spring Boo
 
 ## Maven dependencies
 
-Version `0.1.0` is available on Maven Central. Use the default Maven Central repository and add one of the following components to `<dependencies>` in your application's `pom.xml`.
+The examples below use version `0.2.0` from the default Maven Central repository. Add one of the following components to `<dependencies>` in your application's `pom.xml`.
 
 ### Spring Boot application
 
@@ -79,7 +90,7 @@ Version `0.1.0` is available on Maven Central. Use the default Maven Central rep
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -93,7 +104,7 @@ For the embedded monitoring dashboard, use the following dependency, which inclu
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -107,7 +118,7 @@ Plain Java applications can depend on the core module and supply and manage thei
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-core</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -192,7 +203,10 @@ Configuration uses the `redis-mq` prefix and comes from application properties, 
 | listeners-enabled | true | Discover annotated consumers; false enables producer-only mode |
 | namespace | Application name:active profiles | Isolates messages and directory entries; changing it selects a new namespace |
 | max-queue-size | 100000 | Payload capacity per queue, including scheduled, in-flight, and dead-letter messages |
-| max-message-bytes | 65536 | Maximum UTF-8 size of a JSON payload |
+| max-message-bytes | 65536 | Maximum UTF-8 size of a JSON payload; hard maximum 64 KiB |
+| max-queue-bytes | 67108864 | Total payload bytes per queue, including processing and dead letters; excludes Redis structure overhead |
+| max-dedup-entries | 200000 | Idempotency entries per queue, including IDs, business keys and request aliases |
+| max-registered-queues | 1024 | Queue directory limit per namespace |
 | idempotency-retention | 24h | ID retention after completion or cancellation |
 | concurrency | 4 | Concurrency per listener; overridable by the annotation |
 | visibility | 60s | Delivery lease duration; renewed automatically by the runtime |
@@ -216,7 +230,7 @@ Dead letters remain until explicitly handled and count toward payload capacity. 
 
 ## Embedded dashboard
 
-Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.1.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
+Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.2.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
 
 ```yaml
 redis-mq:
@@ -268,3 +282,11 @@ Run `mvn clean verify` for the included tests; no Redis connection is required. 
 ## License
 
 Original project code is licensed under [MIT](LICENSE), copyright linbin-mk. Maven metadata and component JARs include license information. Third-party dependencies retain their own licenses; see [NOTICE](NOTICE).
+
+## Storage and bounded operations
+
+New messages use storage format 2: payloads are stored separately from metadata. Reads support format 1, but old and new clients must not run concurrently. Pause producers and consumers before upgrading existing data; migrate all three states with `migrateStorage(queue, state, offset, 10)`, advancing offset by the returned count until zero. Repeat safely if interrupted. Existing inline messages block new sends with `MQ_STORAGE_UPGRADE_REQUIRED` until migrated or drained. Do not downgrade clients after migration. The Chinese [upgrade guide](docs/容量保护与升级.md) includes an executable Java example and capacity sizing notes.
+
+`receive()` accepts an upper bound, returning at most 16 deliveries and 64 KiB of payload per call. A short batch does not indicate an empty queue. Full `deadMessages()` pages also have a 64 KiB payload budget; advance offset by the actual returned count. Metadata pages keep their normal pagination. Expired leases are recovered at most eight per call; expired deduplication entries are cleaned at most 32 per call. `stats()` additionally reports `payloadBytes` and `dedupEntries`.
+
+Queue names cannot contain colons; namespace and message IDs may still contain them. Payload serialization is bounded to 64 KiB, and canceled heartbeat/deadline tasks are immediately removed. Scripts use EVALSHA with NOSCRIPT recovery. Configure Redis `maxmemory` with `noeviction`; never set TTLs on queue keys. Budget separately for metadata, indexes, Redis overhead and other applications. Full queues reject new sends without evicting existing idempotency records; producers must back off. Capacity limits do not establish an absolute latency guarantee on arbitrary hardware or under unrelated Redis load.

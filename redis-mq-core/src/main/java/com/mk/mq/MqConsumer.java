@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -29,18 +30,20 @@ public final class MqConsumer<T> implements AutoCloseable {
     private final AtomicBoolean abandoned = new AtomicBoolean();
     private final ExecutorService workers;
     private final ScheduledExecutorService renewal;
+    private final ScheduledExecutorService deadlines;
     private final Thread dispatcher;
     private AutoCloseable subscription;
 
     MqConsumer(RedisMq mq, String queue, Class<T> payloadType, MessageHandler<T> handler, ConsumerOptions options) {
         this.mq = Objects.requireNonNull(mq);
-        this.queue = Checks.name(queue, "队列名称");
+        this.queue = Checks.queue(queue);
         this.payloadType = Objects.requireNonNull(payloadType);
         this.handler = Objects.requireNonNull(handler);
         this.options = Objects.requireNonNull(options);
         slots = new Semaphore(options.concurrency());
         workers = Executors.newFixedThreadPool(options.concurrency(), threads("业务"));
-        renewal = Executors.newScheduledThreadPool(Math.min(options.concurrency(), 4), threads("续期"));
+        renewal = scheduler(Math.min(options.concurrency(), 4), "续期");
+        deadlines = scheduler(1, "超时");
         dispatcher = threads("调度").newThread(this::dispatch);
     }
 
@@ -60,7 +63,8 @@ public final class MqConsumer<T> implements AutoCloseable {
                 int count = Math.min(100, slots.availablePermits());
                 if (count > 0) {
                     ReceiveBatch batch = mq.receive(queue, count, options.visibility());
-                    wait = Math.max(10, Math.min(wait, batch.nextCheckAfterMillis()));
+                    wait = batch.deliveries().isEmpty()
+                            ? Math.max(10, Math.min(wait, batch.nextCheckAfterMillis())) : 0;
                     for (Delivery delivery : batch.deliveries()) {
                         if (!running.get()) break;
                         slots.acquireUninterruptibly();
@@ -87,13 +91,6 @@ public final class MqConsumer<T> implements AutoCloseable {
         long interval = Math.max(50, options.visibility().toMillis() / 3);
         var heartbeat = renewal.scheduleWithFixedDelay(() -> {
             if (done.get() || lost.get()) return;
-            if (System.nanoTime() - startedAt >= options.maxProcessingTime().toNanos()) {
-                lost.set(true);
-                Thread thread = businessThread.get();
-                if (thread != null) thread.interrupt();
-                log.warn("队列 {} 消息 {} 超过最长执行时间，停止续期并请求中断", queue, delivery.message().id());
-                return;
-            }
             try {
                 if (!mq.renew(queue, delivery, options.visibility())) lost.set(true);
             } catch (RuntimeException e) {
@@ -102,6 +99,16 @@ public final class MqConsumer<T> implements AutoCloseable {
                 log.warn("队列 {} 消息 {} 续期失败，等待处理权超时恢复", queue, delivery.message().id(), e);
             }
         }, interval, interval, TimeUnit.MILLISECONDS);
+        var deadline = deadlines.schedule(() -> {
+            synchronized (businessThread) {
+                if (!done.get()) {
+                    lost.set(true);
+                    Thread thread = businessThread.get();
+                    if (thread != null) thread.interrupt();
+                    log.warn("队列 {} 消息 {} 超过最长执行时间，停止续期并请求中断", queue, delivery.message().id());
+                }
+            }
+        }, options.maxProcessingTime().toMillis(), TimeUnit.MILLISECONDS);
         try {
             workers.execute(() -> {
                 businessThread.set(Thread.currentThread());
@@ -127,9 +134,14 @@ public final class MqConsumer<T> implements AutoCloseable {
                     }
                     log.warn("队列 {} 消息 {} 第 {} 次处理失败", queue, delivery.message().id(), delivery.message().deliveryCount(), e);
                 } finally {
-                    done.set(true);
+                    synchronized (businessThread) {
+                        done.set(true);
+                        businessThread.set(null);
+                        // 超时中断必须在业务线程归还前结束，避免影响下一次回调。
+                        Thread.interrupted();
+                    }
                     heartbeat.cancel(false);
-                    businessThread.set(null);
+                    deadline.cancel(false);
                     slots.release();
                     signal();
                 }
@@ -137,6 +149,7 @@ public final class MqConsumer<T> implements AutoCloseable {
         } catch (RuntimeException e) {
             done.set(true);
             heartbeat.cancel(false);
+            deadline.cancel(false);
             throw e;
         }
     }
@@ -163,7 +176,17 @@ public final class MqConsumer<T> implements AutoCloseable {
             abandoned.set(true);
             workers.shutdownNow();
             Thread.currentThread().interrupt();
-        } finally { renewal.shutdownNow(); }
+        } finally {
+            renewal.shutdownNow();
+            deadlines.shutdownNow();
+        }
+    }
+
+    private ScheduledExecutorService scheduler(int count, String role) {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(count, threads(role));
+        // 快速消息取消续期和超时任务后立即移除，避免调度队列随吞吐量增长。
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
     }
 
     private ThreadFactory threads(String role) {

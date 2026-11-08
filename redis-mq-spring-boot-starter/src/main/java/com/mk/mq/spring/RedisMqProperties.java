@@ -13,6 +13,9 @@ public class RedisMqProperties {
     private String namespace;
     private int maxQueueSize = 100000;
     private int maxMessageBytes = 65536;
+    private long maxQueueBytes = 64L * 1024 * 1024;
+    private int maxDedupEntries = 200000;
+    private int maxRegisteredQueues = 1024;
     private Duration idempotencyRetention = Duration.ofHours(24);
     private int concurrency = 4;
     private Duration visibility = Duration.ofSeconds(60);
@@ -20,7 +23,7 @@ public class RedisMqProperties {
     private Duration pollInterval = Duration.ofMillis(500);
     private Duration shutdownTimeout = Duration.ofSeconds(30);
 
-    public MqOptions mqOptions() { return new MqOptions(maxQueueSize, maxMessageBytes, idempotencyRetention); }
+    public MqOptions mqOptions() { return new MqOptions(maxQueueSize, maxMessageBytes, idempotencyRetention, maxQueueBytes, maxDedupEntries, maxRegisteredQueues); }
     public ConsumerOptions consumerOptions(int overrideConcurrency) {
         return new ConsumerOptions(overrideConcurrency == 0 ? concurrency : overrideConcurrency, visibility, maxProcessingTime, pollInterval, shutdownTimeout);
     }
@@ -34,6 +37,12 @@ public class RedisMqProperties {
     public void setMaxQueueSize(int value) { maxQueueSize = value; }
     public int getMaxMessageBytes() { return maxMessageBytes; }
     public void setMaxMessageBytes(int value) { maxMessageBytes = value; }
+    public int getMaxRegisteredQueues() { return maxRegisteredQueues; }
+    public void setMaxRegisteredQueues(int value) { maxRegisteredQueues = value; }
+    public long getMaxQueueBytes() { return maxQueueBytes; }
+    public void setMaxQueueBytes(long value) { maxQueueBytes = value; }
+    public int getMaxDedupEntries() { return maxDedupEntries; }
+    public void setMaxDedupEntries(int value) { maxDedupEntries = value; }
     public Duration getIdempotencyRetention() { return idempotencyRetention; }
     public void setIdempotencyRetention(Duration value) { idempotencyRetention = value; }
     public int getConcurrency() { return concurrency; }

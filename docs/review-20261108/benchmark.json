@@ -1,0 +1,164 @@
+{
+  "slowlog_threshold_us": 1000,
+  "cases": [
+    {
+      "version": "baseline",
+      "payload_bytes": 1024,
+      "backlog": 10000,
+      "delivered": 10000,
+      "consume_messages_per_second": 404.8,
+      "batch_max": 100,
+      "batch_mean": 100.0,
+      "receive_roundtrip_ms": {
+        "p50": 8.147,
+        "p99": 16.394,
+        "max": 16.48
+      },
+      "receive_slowlog": {
+        "entries_ge_threshold": 100,
+        "max_ms": 10.998
+      },
+      "renew_roundtrip_ms": {
+        "p50": 1.046,
+        "p99": 2.402,
+        "max": 11.174
+      },
+      "renew_slowlog": {
+        "entries_ge_threshold": 1,
+        "max_ms": 1.783
+      },
+      "ack_roundtrip_ms": {
+        "p50": 1.036,
+        "p99": 2.389,
+        "max": 10.592
+      },
+      "ack_slowlog": {
+        "entries_ge_threshold": 1,
+        "max_ms": 1.153
+      }
+    },
+    {
+      "version": "baseline",
+      "payload_bytes": 65536,
+      "backlog": 1000,
+      "delivered": 1000,
+      "consume_messages_per_second": 113.7,
+      "batch_max": 100,
+      "batch_mean": 100.0,
+      "receive_roundtrip_ms": {
+        "p50": 326.062,
+        "p99": 450.168,
+        "max": 450.168
+      },
+      "receive_slowlog": {
+        "entries_ge_threshold": 10,
+        "max_ms": 299.356
+      },
+      "renew_roundtrip_ms": {
+        "p50": 2.444,
+        "p99": 4.853,
+        "max": 11.66
+      },
+      "renew_slowlog": {
+        "entries_ge_threshold": 1000,
+        "max_ms": 4.725
+      },
+      "ack_roundtrip_ms": {
+        "p50": 1.92,
+        "p99": 3.851,
+        "max": 6.928
+      },
+      "ack_slowlog": {
+        "entries_ge_threshold": 169,
+        "max_ms": 2.412
+      }
+    },
+    {
+      "version": "optimized",
+      "payload_bytes": 1024,
+      "backlog": 10000,
+      "delivered": 10000,
+      "consume_messages_per_second": 408.6,
+      "batch_max": 16,
+      "batch_mean": 16.0,
+      "receive_roundtrip_ms": {
+        "p50": 1.821,
+        "p99": 3.91,
+        "max": 17.565
+      },
+      "receive_slowlog": {
+        "entries_ge_threshold": 53,
+        "max_ms": 1.979
+      },
+      "renew_roundtrip_ms": {
+        "p50": 1.007,
+        "p99": 2.449,
+        "max": 14.296
+      },
+      "renew_slowlog": {
+        "entries_ge_threshold": 3,
+        "max_ms": 2.618
+      },
+      "ack_roundtrip_ms": {
+        "p50": 1.016,
+        "p99": 2.433,
+        "max": 13.294
+      },
+      "ack_slowlog": {
+        "entries_ge_threshold": 0,
+        "max_ms": 0
+      }
+    },
+    {
+      "version": "optimized",
+      "payload_bytes": 65536,
+      "backlog": 1000,
+      "delivered": 1000,
+      "consume_messages_per_second": 209.1,
+      "batch_max": 1,
+      "batch_mean": 1.0,
+      "receive_roundtrip_ms": {
+        "p50": 1.905,
+        "p99": 4.459,
+        "max": 21.86
+      },
+      "receive_slowlog": {
+        "entries_ge_threshold": 2,
+        "max_ms": 1.048
+      },
+      "renew_roundtrip_ms": {
+        "p50": 1.129,
+        "p99": 2.598,
+        "max": 9.779
+      },
+      "renew_slowlog": {
+        "entries_ge_threshold": 0,
+        "max_ms": 0
+      },
+      "ack_roundtrip_ms": {
+        "p50": 1.112,
+        "p99": 2.7,
+        "max": 7.834
+      },
+      "ack_slowlog": {
+        "entries_ge_threshold": 1,
+        "max_ms": 1.705
+      }
+    }
+  ],
+  "environment": {
+    "redis_version": "7.4.12",
+    "docker_cpu_limit": 2,
+    "container_memory_mib": 384,
+    "redis_maxmemory_mib": 256,
+    "redis_policy": "noeviction",
+    "slowlog_threshold_us": 1000,
+    "connection": "localhost TCP via Docker Desktop",
+    "date": "2026-11-08"
+  },
+  "source": {
+    "baseline_commit": "98a54c6",
+    "baseline_script_sha1": "babbec0bd730976153710f6344372bfa900f3414",
+    "optimized_script_sha1": "35568fdf835f4711419ffdfb0827190a4555b90a"
+  }
+}

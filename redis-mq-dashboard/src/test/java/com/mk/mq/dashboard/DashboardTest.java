@@ -117,15 +117,15 @@ class DashboardTest {
                 default -> throw new AssertionError("未预期的目录操作：" + m.getName());
             });
             if (method.getName().equals("getScript")) return Proxy.newProxyInstance(RScript.class.getClassLoader(), new Class<?>[]{RScript.class}, (p, m, a) -> {
-                if (!m.getName().equals("eval")) throw new AssertionError("未预期的脚本调用");
+                if (!m.getName().equals("eval") && !m.getName().equals("evalSha")) throw new AssertionError("未预期的脚本调用");
                 assertThat(a[0]).isEqualTo(RScript.Mode.READ_ONLY);
                 var keys = (List<?>) a[3];
                 if (keys.get(0).toString().contains(":unavailable}")) throw new IllegalStateException("模拟单队列读取失败");
                 Object[] parameters = (Object[]) a[4];
                 return switch (parameters[0].toString()) {
-                    case "stats" -> List.of(2L, 8L, 1L, 0L, 1L, 12L);
+                    case "stats" -> List.of(2L, 8L, 1L, 0L, 1L, 12L, 1024L, 12L);
                     case "list" -> "[" + message() + "]";
-                    case "get" -> parameters[1].equals("gone") ? "" : message();
+                    case "get" -> parameters[1].equals("gone") ? List.of() : List.of(message(), "{\"内容\":\"<script>测试</script>\"}");
                     default -> throw new AssertionError("看板不允许写操作：" + parameters[0]);
                 };
             });

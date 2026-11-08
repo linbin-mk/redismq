@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 tag = os.environ.get("RELEASE_TAG", "")
 if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", tag) or tag.endswith("-SNAPSHOT"):
-    sys.exit("Release tag must be a non-SNAPSHOT version such as v0.1.0")
+    sys.exit("Release tag must be a non-SNAPSHOT version such as v0.2.0")
 
 version = tag[1:]
 ns = {"m": "http://maven.apache.org/POM/4.0.0"}

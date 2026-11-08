@@ -4,11 +4,22 @@
 
 基于 Redis 的 Java 可靠任务队列，提供延时投递、竞争消费、成功确认、超时恢复、失败重试和只读监控看板。
 
-- 版本：`0.1.0`
+- 版本：`0.2.0`
 - Java 基础包：`com.mk.mq`
 - Maven groupId：`io.github.linbin-mk`
 - 开源协议：[MIT](LICENSE)
 - 主分支：`master`
+
+## 0.2.0 更新
+
+- 正文与元数据分离，大消息领取、续期和确认减少 JSON 编解码；领取上限为 16 条、正文合计 64 KiB。
+- 新增正文总字节数、防重索引和队列目录容量保护，修复发送绕过 Redis OOM 检查的问题。
+- 消费者取消的定时任务立即清理，最长处理时间由独立线程计时；脚本使用 SHA 缓存并自动恢复。
+- Redis 6.2 / 7.4 的真实集成、并发和 OOM 测试纳入发布前检查。
+
+**从 0.1.0 升级：存储格式变为版本 2，新旧客户端不能混跑。先停止生产、消费和管理写入，迁移存量数据或用旧版排空后再切换；队列名不再允许冒号，单条 JSON 正文最多 64 KiB。**
+
+阅读[更新记录](CHANGELOG.md)、[容量配置与升级步骤](docs/容量保护与升级.md)和[本机验收结果](docs/review-20261108/验收报告.md)。
 
 ## 模块
 
@@ -33,7 +44,7 @@ flowchart LR
         D["可选监控看板<br/>独立认证 · 只读接口"] -->|"查询"| C
     end
     subgraph REDIS["Redis"]
-        Q["队列状态<br/>scheduled / processing<br/>messages / dead"]
+        Q["队列状态<br/>scheduled / processing<br/>messages 元数据 / payloads 正文 / dead"]
         I["去重索引<br/>dedup / dedup-expiry"]
         R["队列目录<br/>directory"]
         N["Pub/Sub 唤醒通知"]
@@ -71,7 +82,7 @@ flowchart LR
 
 ## Maven 引用
 
-`0.1.0` 已发布到 Maven Central。使用默认的 Maven Central 仓库即可，在项目 `pom.xml` 的 `<dependencies>` 中按需添加以下一个组件。
+以下示例使用 `0.2.0`，通过默认 Maven Central 仓库引用，在项目 `pom.xml` 的 `<dependencies>` 中按需添加以下一个组件。
 
 ### Spring Boot 应用
 
@@ -79,7 +90,7 @@ flowchart LR
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -93,7 +104,7 @@ starter 已包含核心模块。Spring Boot 应用须提供一个 `RedissonClien
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -107,7 +118,7 @@ starter 已包含核心模块。Spring Boot 应用须提供一个 `RedissonClien
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-core</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -180,7 +191,7 @@ MqConsumer<TaskRequest> consumer = mq.consume("task-execution", TaskRequest.clas
 consumer.close();
 ```
 
-低层 `receive()` 接口返回带独立领取凭证的 `Delivery`，调用方自行负责 `acknowledge()`、`retry()`、`reject()` 和 `renew()`。这些所有权操作返回 `false` 时，当前处理权已失效。
+低层 `receive()` 的数量参数是上限，单次最多领取 16 条且正文合计不超过 64 KiB；返回少于请求数量不代表队列为空。接口返回带独立领取凭证的 `Delivery`，调用方自行负责 `acknowledge()`、`retry()`、`reject()` 和 `renew()`。这些所有权操作返回 `false` 时，当前处理权已失效。
 
 ## 配置
 
@@ -192,7 +203,10 @@ consumer.close();
 | listeners-enabled | true | 是否自动注册注解消费者；false 表示仅发送 |
 | namespace | 应用名:当前环境 | 消息和目录的隔离空间；变更后属于新空间 |
 | max-queue-size | 100000 | 每队列正文容量，包含待执行、处理中和死信 |
-| max-message-bytes | 65536 | JSON 消息体的 UTF-8 字节上限 |
+| max-message-bytes | 65536 | JSON 消息体的 UTF-8 字节上限，最大支持 64 KiB |
+| max-queue-bytes | 67108864 | 每队列正文合计上限（64 MiB），含处理中和死信，不含 Redis 结构开销 |
+| max-dedup-entries | 200000 | 每队列防重索引上限，含消息编号、业务去重键及重复请求别名 |
+| max-registered-queues | 1024 | 每个命名空间的队列目录上限 |
 | idempotency-retention | 24h | 完成或取消后消息编号的保留时间 |
 | concurrency | 4 | 每个监听器的并发数，可由注解覆盖 |
 | visibility | 60s | 本次处理权期限，运行时自动续期 |
@@ -205,18 +219,18 @@ consumer.close();
 ## 查询与管理
 
 - `get()` 查询现存消息，成功确认、取消或死信删除后正文不存在。
-- `stats()` 返回就绪、延迟、处理中、已过期处理权、死信及正文总数。
+- `stats()` 返回就绪、延迟、处理中、已过期处理权、死信、正文总数，以及 `payloadBytes` 正文字节数和 `dedupEntries` 防重索引数。
 - `cancel()`、`reschedule()` 仅作用于待执行消息，不撤销已开始的任务。
-- `deadMessages()` 分页查看死信，`replayDead()` 重置投递次数并重放，`discardDead()` 删除正文。
+- `deadMessages()` 分页查看死信，单次正文合计不超过 64 KiB，继续分页时按实际返回条数增加 offset；`replayDead()` 重置投递次数并重放，`discardDead()` 删除正文。
 - `messages()` 按状态分页读取元数据，不包含正文和领取凭证。
 - `registerQueue()` 预登记队列，不发送消息、不启动消费者。
 - `storageKeys()` 返回已知队列的固定键名，用于精确运维，不扫描整个 Redis。
 
-死信保留到显式处理，计入正文容量。过期去重索引采用有界批次惰性清理，闲置队列不会自行运行清理进程。
+队列名支持字母、数字、点、下划线和横线，最长 160 字符；冒号仅允许用于命名空间和消息编号，避免跨命名空间的键名冲突。死信保留到显式处理，计入正文容量。过期去重索引每次最多清理 32 条，超时处理权每次最多恢复 8 条，闲置队列不会自行运行清理进程。容量满时拒绝新请求；生产者应退避或降载，不能无限立即重试。防重容量需结合吞吐量和保留窗口计算，详见[容量保护与升级](docs/容量保护与升级.md)。
 
 ## 内嵌监控看板
 
-Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.1.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
+Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.2.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
 
 ```yaml
 redis-mq:
@@ -257,9 +271,9 @@ redis-mq:
 
 Java 中断不能强制结束忽略中断的任务，应用还需为外部调用设置超时。实际到期延迟受轮询间隔、网络、积压和执行容量影响，不保证硬实时、全局严格 FIFO、广播、多个消费组或跨业务存储的原子事务。
 
-组件写入成功表示 Redis 接受了操作，未增加 `WAIT` / `WAITAOF` 强同步确认。消息持久性取决于 Redis 的持久化、复制和故障切换策略。队列状态不应被缓存淘汰策略自动回收。Lua 的原子执行不等于运行错误下的事务回滚。
+组件写入成功表示 Redis 接受了操作，未增加 `WAIT` / `WAITAOF` 强同步确认。消息持久性取决于 Redis 的持久化、复制和故障切换策略。Redis 应配置 `maxmemory` 和 `maxmemory-policy noeviction`，队列固定键不能设置 TTL 或被缓存淘汰；同实例还需为业务缓存、索引和 Redis 结构开销预留容量。Lua 的原子执行不等于运行错误下的事务回滚。
 
-消息格式版本为 1。Redis Cluster 的队列键按单槽设计，不提供单队列自动分片；Cluster、主从切换及故障恢复应在目标部署环境单独验证。
+新写入消息格式版本为 2，兼容读取版本 1。升级方法见[容量保护与升级](docs/容量保护与升级.md)。Redis Cluster 的队列键按单槽设计，不提供单队列自动分片；Cluster、主从切换及故障恢复应在目标部署环境单独验证。
 
 ## 测试与贡献
 

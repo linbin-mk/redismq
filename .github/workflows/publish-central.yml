@@ -13,7 +13,64 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Redis ${{ matrix.redis }} integration and OOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        redis: ['6.2-alpine', '7.4-alpine']
+    services:
+      redis:
+        image: redis:${{ matrix.redis }}
+        ports:
+          - 6379:6379
+        options: >-
+          --memory=384m --cpus=2
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      oom:
+        image: redis:${{ matrix.redis }}
+        ports:
+          - 6380:6379
+        options: >-
+          --memory=128m --cpus=2
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check release coordinates
+        run: python3 .github/scripts/check-release-version.py
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+      - name: Set up Java for validation
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Configure isolated Redis memory limits
+        env:
+          REDIS_CONTAINER: ${{ job.services.redis.id }}
+          OOM_CONTAINER: ${{ job.services.oom.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$REDIS_CONTAINER" redis-cli CONFIG SET maxmemory 256mb
+          docker exec "$REDIS_CONTAINER" redis-cli CONFIG SET maxmemory-policy noeviction
+          docker exec "$OOM_CONTAINER" redis-cli CONFIG SET maxmemory 8mb
+          docker exec "$OOM_CONTAINER" redis-cli CONFIG SET maxmemory-policy noeviction
+      - name: Verify real Redis, concurrent load and OOM behavior
+        run: >-
+          mvn --batch-mode --no-transfer-progress clean verify
+          -Dmq.redis=redis://127.0.0.1:6379 -Dmq.load=true
+          -Dmq.oom.redis=redis://127.0.0.1:6380
+
   publish:
+    needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
