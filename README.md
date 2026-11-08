@@ -1,5 +1,7 @@
 # Redis MQ
 
+**简体中文** | [English](README.en.md)
+
 基于 Redis 的 Java 可靠任务队列，提供延时投递、竞争消费、成功确认、超时恢复、失败重试和只读监控看板。
 
 - 版本：`0.1.0`
@@ -17,6 +19,51 @@
 | redis-mq-dashboard | 可选的应用内嵌只读监控看板，包含 starter 与 core |
 
 核心模块不依赖数据库、配置中心或独立消息代理进程。应用负责提供 Redis 客户端和外部配置。
+
+## 架构与消息流转
+
+### 组件架构
+
+```mermaid
+flowchart LR
+    subgraph APP["应用进程 · 支持多个实例"]
+        P["生产者"] --> C["redis-mq-core<br/>RedisMq 公共 API"]
+        S["Spring Boot starter<br/>自动配置 · 注解注册"] --> W["消费运行时<br/>限流 · 续期 · 回调"]
+        W -->|"领取 / ACK / 重试 / 续期"| C
+        D["可选监控看板<br/>独立认证 · 只读接口"] -->|"查询"| C
+    end
+    subgraph REDIS["Redis"]
+        Q["队列状态<br/>scheduled / processing<br/>messages / dead"]
+        I["去重索引<br/>dedup / dedup-expiry"]
+        R["队列目录<br/>directory"]
+        N["Pub/Sub 唤醒通知"]
+    end
+    C -->|"原子写入 / 只读 Lua"| Q
+    C -->|"同队列 Lua"| I
+    C -->|"独立登记 / 分页读取"| R
+    Q -.->|"状态变更后通知"| N
+    N -.->|"加速唤醒"| W
+```
+
+同一队列的状态和去重索引共享哈希标签，通过 Lua 原子更新；目录独立登记，不参与消息投递事务。Pub/Sub 只加速唤醒，消费者仍通过有界轮询检查到期消息。
+
+### 消息生命周期
+
+```mermaid
+flowchart LR
+    SEND["send()<br/>稳定编号 + JSON"] --> S["待执行 / 延迟<br/>SCHEDULED"]
+    S -->|"到期领取 · 投递次数加一"| P["处理中<br/>PROCESSING"]
+    P -->|"有效凭证 ACK"| END["结束<br/>正文清理 · 编号按窗口保留"]
+    P -->|"失败 / 超时 · 未达上限"| S
+    P -->|"拒绝 / 达投递上限"| D["死信<br/>DEAD"]
+    P -->|"renew()"| P
+    S -->|"reschedule()"| S
+    S -->|"cancel()"| END
+    D -->|"replayDead() · 重置次数"| S
+    D -->|"discardDead()"| END
+```
+
+处理权超时由消费者后续领取时恢复，监控查询不会触发恢复。旧凭证不能确认新领取；重复执行仍需由消费回调通过幂等处理。
 
 ## 环境与构建
 
@@ -155,6 +202,18 @@ redis-mq:
 看板只有读取接口，不触发处理权恢复、重投、发送、取消或删除。应用其他路径的认证仍由应用维护；看板独立认证链顺序为 `-100`，只匹配看板路径。若应用存在更高优先级且匹配所有路径的过滤链，需要自行调整匹配顺序。
 
 页面资源随组件 JAR 提供，无外部字体、CDN 或前端构建要求。
+
+### 看板预览
+
+以下图片使用组件自带页面和**合成示例数据**渲染，不连接实际 Redis 或业务系统；数值仅用于展示界面，不代表性能测试结果。
+
+**队列总览：统计、积压趋势、过期处理权提示与队列目录。**
+
+![Redis MQ 监控看板总览，使用合成示例数据](docs/images/dashboard-overview.png)
+
+**消息详情：投递次数、时间、失败原因与按需读取的 JSON 正文。**
+
+![Redis MQ 消息详情，使用合成示例数据](docs/images/dashboard-message-detail.png)
 
 ## 实现与保证范围
 
