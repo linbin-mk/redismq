@@ -6,7 +6,7 @@ A Redis-backed task queue for Java, with delayed delivery, competing consumers, 
 
 - Version: `0.1.0`
 - Java package: `com.mk.mq`
-- Maven groupId: `com.mk`
+- Maven groupId: `io.github.linbin-mk`
 - License: [MIT](LICENSE)
 - Main branch: `master`
 
@@ -73,13 +73,13 @@ Requires Java 17+, Maven, and Redis 6.2+. The Spring Boot modules use Spring Boo
 mvn clean install
 ```
 
-This builds and installs the artifacts into the local Maven repository. Other machines must build them or use a Maven repository where the artifacts have been published. No public artifact repository is assumed.
+This builds and installs the artifacts into the local Maven repository. Other machines must build them or use a Maven repository where the artifacts have been published. Maintainer instructions for publishing to Maven Central are in the [publishing guide](docs/发布说明.md), currently in Chinese. Check Central for available releases before using a published dependency.
 
 For a Spring Boot application:
 
 ```xml
 <dependency>
-    <groupId>com.mk</groupId>
+    <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
     <version>0.1.0</version>
 </dependency>
@@ -182,7 +182,7 @@ Dead letters remain until explicitly handled and count toward payload capacity. 
 
 ## Embedded dashboard
 
-Web applications can depend on `com.mk:redis-mq-dashboard:0.1.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
+Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.1.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
 
 ```yaml
 redis-mq:

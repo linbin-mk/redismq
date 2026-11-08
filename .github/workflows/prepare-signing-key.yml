@@ -1,0 +1,82 @@
+name: Prepare Maven signing key
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Public name included in the signing key
+        required: true
+        default: linbin-mk
+        type: string
+      email:
+        description: Public email included in the signing key
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Generate a password-protected signing key
+        id: generate
+        shell: bash
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          SIGNING_NAME: ${{ inputs.name }}
+          SIGNING_EMAIL: ${{ inputs.email }}
+        run: |
+          set -euo pipefail
+          if [[ ${#GPG_PASSPHRASE} -lt 20 ]]; then
+            echo '::error::Set GPG_PASSPHRASE to a random passphrase of at least 20 characters first.'
+            exit 1
+          fi
+          umask 077
+          export GNUPGHOME="$RUNNER_TEMP/redismq-signing-home"
+          printf 'GNUPGHOME=%s\n' "$GNUPGHOME" >> "$GITHUB_ENV"
+          mkdir -p "$GNUPGHOME" "$RUNNER_TEMP/redismq-signing-backup"
+          gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
+            --quick-generate-key "$SIGNING_NAME <$SIGNING_EMAIL>" rsa3072 sign 1y \
+            <<< "$GPG_PASSPHRASE"
+          fingerprint=$(gpg --batch --with-colons --list-secret-keys 2>/dev/null | awk -F: '$1 == "fpr" {print $10; exit}')
+          test -n "$fingerprint"
+          gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --armor --export-secret-keys "$fingerprint" \
+            > "$RUNNER_TEMP/redismq-signing-backup/gpg-private-key.asc" <<< "$GPG_PASSPHRASE"
+          gpg --batch --armor --export "$fingerprint" \
+            > "$RUNNER_TEMP/redismq-signing-backup/public-key.asc"
+          printf '%s\n' "$fingerprint" > "$RUNNER_TEMP/redismq-signing-backup/fingerprint.txt"
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Save encrypted private key and public key for one day
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: redismq-signing-key-${{ github.run_id }}
+          path: ${{ runner.temp }}/redismq-signing-backup/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Publish the public key for Central signature verification
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.generate.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if timeout 60s gpg --batch --keyserver hkps://keyserver.ubuntu.com --send-keys "$SIGNING_FINGERPRINT"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo '::error::Public key upload failed. The encrypted backup artifact has already been saved.'
+          exit 1
+
+      - name: Remove temporary key material
+        if: always()
+        shell: bash
+        run: |
+          gpgconf --homedir "$RUNNER_TEMP/redismq-signing-home" --kill all || true
+          rm -rf -- "$RUNNER_TEMP/redismq-signing-home" "$RUNNER_TEMP/redismq-signing-backup"

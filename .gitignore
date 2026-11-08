@@ -20,3 +20,5 @@ settings-local.xml
 *.p12
 *.pfx
 *.jks
+gpg-private-key.asc
+/signing-key-backup/

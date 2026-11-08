@@ -6,7 +6,7 @@
 
 - 版本：`0.1.0`
 - Java 基础包：`com.mk.mq`
-- Maven groupId：`com.mk`
+- Maven groupId：`io.github.linbin-mk`
 - 开源协议：[MIT](LICENSE)
 - 主分支：`master`
 
@@ -73,13 +73,13 @@ flowchart LR
 mvn clean install
 ```
 
-此命令构建并安装构件到本地 Maven 仓库。其他机器使用前需自行构建，或从已发布该组件的 Maven 仓库获取依赖。本项目不预设公共构件仓库地址。
+此命令构建并安装构件到本地 Maven 仓库。其他机器使用前需自行构建，或从已发布该组件的 Maven 仓库获取依赖。Maven Central 发布配置与维护者操作步骤见[发布说明](docs/发布说明.md)；是否已发布需以 Central 实际可用版本为准。
 
 Spring Boot 应用引用：
 
 ```xml
 <dependency>
-    <groupId>com.mk</groupId>
+    <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
     <version>0.1.0</version>
 </dependency>
@@ -182,7 +182,7 @@ consumer.close();
 
 ## 内嵌监控看板
 
-Web 应用将依赖改为 `com.mk:redis-mq-dashboard:0.1.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
+Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.1.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
 
 ```yaml
 redis-mq:

@@ -1,0 +1,83 @@
+name: Publish to Maven Central
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-central-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check tag and all module versions
+        run: python3 .github/scripts/check-release-version.py
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Check publishing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in CENTRAL_USERNAME CENTRAL_PASSWORD GPG_PRIVATE_KEY GPG_PASSPHRASE; do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "::error::Missing repository secret: $secret_name"
+              exit 1
+            fi
+          done
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Set up Java and publishing credentials
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: central
+          server-username-env-var: CENTRAL_USERNAME
+          server-password-env-var: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase-env-var: GPG_PASSPHRASE
+
+      - name: Make the signing public key available to Central
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint=$(gpg --batch --with-colons --list-secret-keys 2>/dev/null | awk -F: '$1 == "fpr" {print $10; exit}')
+          test -n "$fingerprint"
+          for attempt in 1 2 3; do
+            if timeout 60s gpg --batch --keyserver hkps://keyserver.ubuntu.com --send-keys "$fingerprint"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo '::error::Cannot publish the signing public key to the keyserver.'
+          exit 1
+
+      - name: Build, test, sign and publish all modules
+        run: >-
+          mvn --batch-mode --no-transfer-progress -Prelease
+          -Dcentral.autoPublish=true -Dcentral.waitUntil=published
+          -Dgpg.passphraseEnvName=GPG_PASSPHRASE
+          -Dscm.tag="$RELEASE_TAG" clean deploy
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
