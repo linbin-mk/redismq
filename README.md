@@ -174,4 +174,4 @@ Java 中断不能强制结束忽略中断的任务，应用还需为外部调用
 
 ## 许可证
 
-本项目自有代码采用 [MIT](LICENSE)，版权署名为 Redis MQ contributors。Maven 元数据和组件 JAR 均携带许可证信息。第三方依赖保留各自的许可证，见 [NOTICE](NOTICE)。
+本项目自有代码采用 [MIT](LICENSE)，版权署名为 linbin-mk。Maven 元数据和组件 JAR 均携带许可证信息。第三方依赖保留各自的许可证，见 [NOTICE](NOTICE)。
