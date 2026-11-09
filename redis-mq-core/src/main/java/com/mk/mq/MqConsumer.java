@@ -103,6 +103,7 @@ public final class MqConsumer<T> implements AutoCloseable {
             synchronized (businessThread) {
                 if (!done.get()) {
                     lost.set(true);
+                    mq.metric(queue, MqMetricsListener.Event.PROCESSING_TIMEOUT, 1, 0);
                     Thread thread = businessThread.get();
                     if (thread != null) thread.interrupt();
                     log.warn("队列 {} 消息 {} 超过最长执行时间，停止续期并请求中断", queue, delivery.message().id());
@@ -112,16 +113,30 @@ public final class MqConsumer<T> implements AutoCloseable {
         try {
             workers.execute(() -> {
                 businessThread.set(Thread.currentThread());
+                long handlingStarted = System.nanoTime();
+                boolean invoked = false;
+                boolean durationRecorded = false;
+                boolean businessSucceeded = false;
                 try {
                     if (lost.get() || abandoned.get()) return;
+                    invoked = true;
                     T payload = mq.decode(delivery, payloadType);
                     MessageSnapshot message = delivery.message();
                     handler.handle(payload, new MessageContext(queue, message.id(), message.deliveryCount(), message.createdAt()));
+                    businessSucceeded = true;
+                    mq.metric(queue, MqMetricsListener.Event.PROCESSING_TIME, 1, System.nanoTime() - handlingStarted);
+                    durationRecorded = true;
+                    mq.metric(queue, MqMetricsListener.Event.HANDLER_SUCCESS, 1, 0);
                     if (System.nanoTime() - startedAt >= options.maxProcessingTime().toNanos()) lost.set(true);
                     if (!lost.get() && !abandoned.get() && !mq.acknowledge(queue, delivery)) {
                         log.warn("队列 {} 消息 {} 已失去处理权，未确认完成", queue, message.id());
                     }
                 } catch (Exception e) {
+                    if (!durationRecorded && invoked) {
+                        mq.metric(queue, MqMetricsListener.Event.PROCESSING_TIME, 1, System.nanoTime() - handlingStarted);
+                        durationRecorded = true;
+                    }
+                    if (!businessSucceeded) mq.metric(queue, MqMetricsListener.Event.HANDLER_FAILURE, 1, 0);
                     if (System.nanoTime() - startedAt >= options.maxProcessingTime().toNanos()) lost.set(true);
                     if (!lost.get() && !abandoned.get()) {
                         try {
@@ -134,6 +149,7 @@ public final class MqConsumer<T> implements AutoCloseable {
                     }
                     log.warn("队列 {} 消息 {} 第 {} 次处理失败", queue, delivery.message().id(), delivery.message().deliveryCount(), e);
                 } finally {
+                    if (invoked && !durationRecorded) mq.metric(queue, MqMetricsListener.Event.PROCESSING_TIME, 1, System.nanoTime() - handlingStarted);
                     synchronized (businessThread) {
                         done.set(true);
                         businessThread.set(null);

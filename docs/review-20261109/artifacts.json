@@ -1,0 +1,34 @@
+[
+  {
+    "module": "redis-mq-core",
+    "bytecode_major": 61,
+    "license_notice": true,
+    "test_fixtures_absent": true,
+    "resources_match_source": true,
+    "source_and_javadoc_jars": true
+  },
+  {
+    "module": "redis-mq-spring-boot-starter",
+    "bytecode_major": 61,
+    "license_notice": true,
+    "test_fixtures_absent": true,
+    "resources_match_source": true,
+    "source_and_javadoc_jars": true
+  },
+  {
+    "module": "redis-mq-dashboard",
+    "bytecode_major": 61,
+    "license_notice": true,
+    "test_fixtures_absent": true,
+    "resources_match_source": true,
+    "source_and_javadoc_jars": true
+  },
+  {
+    "module": "redis-mq-dashboard-mysql",
+    "bytecode_major": 61,
+    "license_notice": true,
+    "test_fixtures_absent": true,
+    "resources_match_source": true,
+    "source_and_javadoc_jars": true
+  }
+]

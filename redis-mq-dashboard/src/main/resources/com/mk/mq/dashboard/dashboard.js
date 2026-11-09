@@ -169,6 +169,7 @@
     try {
       const data = await api(`overview?offset=${state.queueOffset}&count=${pageSize}`);
       state.overview = data; renderOverview(data);
+      window.dispatchEvent(new CustomEvent("redis-mq:overview", {detail: data}));
       if (state.selected) await loadMessages();
     } catch (error) {
       setConnection(false, '读取失败');

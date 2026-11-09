@@ -1,0 +1,95 @@
+{
+  "result": "BUILD SUCCESS",
+  "suites": [
+    {
+      "suite": "com.mk.mq.OptionsTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.RedisMqIntegrationTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 24
+    },
+    {
+      "suite": "com.mk.mq.RedisMqLoadTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    {
+      "suite": "com.mk.mq.RedisMqOomTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    {
+      "suite": "com.mk.mq.dashboard.DashboardTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.HistoryAutoConfigurationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.HistoryRepositoryTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 8
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.HistoryWebE2ETest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 3
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.MinuteMetricsTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.MysqlHistoryIntegrationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 4
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.MysqlHistoryLoadTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    {
+      "suite": "com.mk.mq.spring.RedisMqAutoConfigurationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "totals": {
+    "tests": 67,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 42
+  }
+}

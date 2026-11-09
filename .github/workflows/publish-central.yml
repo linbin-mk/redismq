@@ -38,6 +38,19 @@ jobs:
           --memory=128m --cpus=2
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
+      mysql:
+        image: mysql:8.0.28
+        env:
+          MYSQL_ROOT_PASSWORD: mq-ci-root-only
+          MYSQL_DATABASE: rmq_history_test
+          MYSQL_USER: rmq_history
+          MYSQL_PASSWORD: mq-ci-test-only
+        ports:
+          - 3306:3306
+        options: >-
+          --memory=1g --cpus=2
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 5s --health-timeout 3s --health-retries 30
     steps:
       - name: Check out release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -63,11 +76,15 @@ jobs:
           docker exec "$REDIS_CONTAINER" redis-cli CONFIG SET maxmemory-policy noeviction
           docker exec "$OOM_CONTAINER" redis-cli CONFIG SET maxmemory 8mb
           docker exec "$OOM_CONTAINER" redis-cli CONFIG SET maxmemory-policy noeviction
-      - name: Verify real Redis, concurrent load and OOM behavior
+      - name: Verify Redis, MySQL history, concurrent load and OOM behavior
+        env:
+          MYSQL_USER: rmq_history
+          MYSQL_PASSWORD: mq-ci-test-only
         run: >-
           mvn --batch-mode --no-transfer-progress clean verify
           -Dmq.redis=redis://127.0.0.1:6379 -Dmq.load=true
           -Dmq.oom.redis=redis://127.0.0.1:6380
+          "-Dmq.mysql=jdbc:mysql://127.0.0.1:3306/rmq_history_test?useSSL=false&allowPublicKeyRetrieval=true"
 
   publish:
     needs: test

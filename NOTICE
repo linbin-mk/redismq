@@ -11,6 +11,11 @@ Redis MQ
   https://spring.io/projects
 - Jackson Databind：Apache License 2.0
   https://github.com/FasterXML/jackson-databind
+- HikariCP（仅可选 MySQL 扩展）：Apache License 2.0
+  https://github.com/brettwooldridge/HikariCP
+- MySQL Connector/J（仅可选 MySQL 扩展）：GNU GPL v2 with Universal FOSS Exception v1.0
+  具体条款以该依赖构件内的 LICENSE 为准。
+  https://dev.mysql.com/doc/connector-j/en/
 - JUnit Jupiter（仅测试）：Eclipse Public License 2.0
   https://junit.org/junit5/
 

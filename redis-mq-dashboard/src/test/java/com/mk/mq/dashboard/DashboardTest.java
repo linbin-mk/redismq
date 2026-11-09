@@ -99,6 +99,17 @@ class DashboardTest {
         assertThat(writes.get()).isEqualTo(before);
     }
     @Test
+    void mysqlHistoryIsOptionalAndKeepsTheBaseDashboardReadOnly() throws Exception {
+        int before = writes.get();
+        mvc.perform(get("/redis-mq/dashboard/api/history/status").with(httpBasic("monitor", PASSWORD)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(false));
+        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/history").with(httpBasic("monitor", PASSWORD)))
+                .andExpect(status().isServiceUnavailable());
+        mvc.perform(get("/redis-mq/dashboard/history.js").with(httpBasic("monitor", PASSWORD)))
+                .andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("snapshotPresent")));
+        assertThat(writes.get()).isEqualTo(before);
+    }
+    @Test
     void staysDisabledByDefaultAndFailsClosedWithoutPassword() {
         var runner = new WebApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(RedisMqAutoConfiguration.class, RedisMqDashboardAutoConfiguration.class))

@@ -398,6 +398,42 @@ class RedisMqIntegrationTest {
         } finally { release.countDown(); consumer.close(); }
     }
 
+    @Test void metricsObserveOnlyAcceptedTransitionsAndCannotBreakDelivery() throws Exception {
+        String q = queue("observed");
+        var counts = new java.util.concurrent.atomic.AtomicLongArray(MqMetricsListener.Event.values().length);
+        var observation = mq.observe((name, event, count, nanos) -> counts.addAndGet(event.ordinal(), count));
+        try {
+            SendOptions request = fast(2);
+            mq.send(q, "work", request); mq.send(q, "work", request);
+            var delivery = take(q);
+            assertTrue(mq.retry(q, delivery, "retry"));
+            assertFalse(mq.retry(q, delivery, "stale"));
+            Thread.sleep(20);
+            assertTrue(mq.acknowledge(q, take(q)));
+            assertEquals(1, counts.get(MqMetricsListener.Event.SENT.ordinal()));
+            assertEquals(1, counts.get(MqMetricsListener.Event.DUPLICATE.ordinal()));
+            assertEquals(2, counts.get(MqMetricsListener.Event.RECEIVED.ordinal()));
+            assertEquals(1, counts.get(MqMetricsListener.Event.RETRIED.ordinal()));
+            assertEquals(1, counts.get(MqMetricsListener.Event.ACKNOWLEDGED.ordinal()));
+            assertThrows(IllegalStateException.class, () -> mq.observe((name, event, count, nanos) -> { }));
+        } finally { observation.close(); }
+        try (var ignored = mq.observe((name, event, count, nanos) -> { throw new IllegalStateException("观测器故障"); })) {
+            mq.send(q, "still works"); assertTrue(mq.acknowledge(q, take(q)));
+        }
+    }
+
+    @Test void expirationMetricsIncludeServerSideRecoveryAndDeadTransitions() throws Exception {
+        String q = queue("observed-expiry");
+        var counts = new java.util.concurrent.atomic.AtomicLongArray(MqMetricsListener.Event.values().length);
+        try (var observation = mq.observe((name, event, count, nanos) -> counts.addAndGet(event.ordinal(), count))) {
+            mq.send(q, "work", fast(1));
+            mq.receive(q, 1, Duration.ofMillis(50)); Thread.sleep(70);
+            mq.receive(q, 1, LEASE);
+            assertEquals(1, counts.get(MqMetricsListener.Event.EXPIRED.ordinal()));
+            assertEquals(1, counts.get(MqMetricsListener.Event.DEAD.ordinal()));
+        }
+    }
+
     @Test void processingDeadlineDoesNotWaitForHeartbeatInterval() throws Exception {
         String q = queue("deadline");
         CountDownLatch interrupted = new CountDownLatch(1);

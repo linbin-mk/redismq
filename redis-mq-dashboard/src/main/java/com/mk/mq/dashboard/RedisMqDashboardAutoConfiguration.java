@@ -1,6 +1,7 @@
 package com.mk.mq.dashboard;
 
 import com.mk.mq.RedisMq;
+import org.springframework.beans.factory.ObjectProvider;
 import com.mk.mq.spring.RedisMqAutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -50,9 +51,9 @@ public class RedisMqDashboardAutoConfiguration {
     }
 
     @Bean
-    public DashboardController redisMqDashboardController(RedisMq mq, DashboardProperties properties) {
+    public DashboardController redisMqDashboardController(RedisMq mq, DashboardProperties properties, ObjectProvider<DashboardHistory> history) {
         properties.validate();
         properties.getQueues().forEach(mq::registerQueue);
-        return new DashboardController(mq);
+        return new DashboardController(mq, history::getIfAvailable);
     }
 }

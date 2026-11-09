@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** 仅依赖 Redis 的队列客户端，不创建或关闭宿主的 Redis 连接。 */
 public final class RedisMq {
@@ -42,6 +43,7 @@ public final class RedisMq {
     private final String namespace;
     private final MqOptions options;
     private final ObjectMapper mapper;
+    private final AtomicReference<MqMetricsListener> metrics = new AtomicReference<>();
     private final ConcurrentMap<String, Boolean> registered = new ConcurrentHashMap<>();
 
     public RedisMq(RedissonClient redis, String namespace) {
@@ -71,7 +73,9 @@ public final class RedisMq {
                 sendOptions.maxRetryDelay().toMillis(),
                 sendOptions.deduplicationKey() == null ? "" : digest(sendOptions.deduplicationKey()),
                 sendOptions.deduplicationWindow().toMillis(), options.maxQueueSize(), options.maxMessageBytes(), options.maxQueueBytes(), options.maxDedupEntries()));
-        return new SendResult(result.path("id").asText(), result.path("duplicate").asBoolean());
+        boolean duplicate = result.path("duplicate").asBoolean();
+        metric(queue, duplicate ? MqMetricsListener.Event.DUPLICATE : MqMetricsListener.Event.SENT, 1, 0);
+        return new SendResult(result.path("id").asText(), duplicate);
     }
 
     /** 低层领取接口：调用方自行确认、续期或失败重试；数量为上限；每批最多十六条且正文合计不超过 64 KiB。 */
@@ -80,9 +84,19 @@ public final class RedisMq {
         long lease = Checks.millis(visibility, false, "处理权期限");
         List<?> batch = eval(queue, "receive", RScript.ReturnType.MULTI, count, lease, UUID.randomUUID().toString());
         List<Delivery> messages = new ArrayList<>();
-        for (int i = 1; i < batch.size(); i += 2) {
+        for (int i = 4; i < batch.size(); i += 2) {
             JsonNode node = json((String) batch.get(i));
             messages.add(new Delivery(snapshot(node, (String) batch.get(i + 1)), node.path("receipt").asText()));
+        }
+        metric(queue, MqMetricsListener.Event.RECEIVED, messages.size(), 0);
+        metric(queue, MqMetricsListener.Event.EXPIRED, ((Number) batch.get(1)).longValue(), 0);
+        metric(queue, MqMetricsListener.Event.RETRIED, ((Number) batch.get(2)).longValue(), 0);
+        metric(queue, MqMetricsListener.Event.DEAD, ((Number) batch.get(3)).longValue(), 0);
+        if (metrics.get() != null) {
+            for (Delivery delivery : messages) {
+                long lagMillis = Math.max(0, delivery.message().leaseUntil() - lease - delivery.message().availableAt());
+                metric(queue, MqMetricsListener.Event.CLAIM_LATENCY, 1, lagMillis * 1000000);
+            }
         }
         return new ReceiveBatch(messages, ((Number) batch.get(0)).longValue());
     }
@@ -182,6 +196,20 @@ public final class RedisMq {
         return consumer;
     }
 
+    /** 每个客户端只安装一个分析收集器；关闭句柄仅卸载自身，不影响客户端生命周期。 */
+    public AutoCloseable observe(MqMetricsListener listener) {
+        Objects.requireNonNull(listener, "分析收集器不能为空");
+        if (!metrics.compareAndSet(null, listener)) throw new IllegalStateException("该 MQ 客户端已有分析收集器");
+        return () -> metrics.compareAndSet(listener, null);
+    }
+
+    void metric(String queue, MqMetricsListener.Event event, long count, long nanos) {
+        MqMetricsListener listener = metrics.get();
+        if (listener == null || count == 0) return;
+        try { listener.record(queue, event, count, nanos); }
+        catch (RuntimeException ignored) { /* 分析实现异常不能改变投递结果。 */ }
+    }
+
     AutoCloseable subscribe(String queue, Runnable wakeup) {
         var topic = redis.getTopic(storageKeys(queue).get(6), StringCodec.INSTANCE);
         int id = topic.addListener(String.class, (channel, message) -> wakeup.run());
@@ -190,7 +218,18 @@ public final class RedisMq {
 
     private boolean ownedOperation(String queue, String operation, Delivery delivery, Object argument) {
         Objects.requireNonNull(delivery, "领取记录不能为空");
-        return (Long) eval(queue, operation, RScript.ReturnType.INTEGER, delivery.message().id(), delivery.receipt(), argument) == 1;
+        boolean accepted = (Long) eval(queue, operation, RScript.ReturnType.INTEGER, delivery.message().id(), delivery.receipt(), argument) == 1;
+        if (accepted) {
+            MqMetricsListener.Event event = switch (operation) {
+                case "ack" -> MqMetricsListener.Event.ACKNOWLEDGED;
+                case "reject" -> MqMetricsListener.Event.DEAD;
+                case "retry" -> delivery.message().deliveryCount() >= delivery.message().maxDeliveries()
+                        ? MqMetricsListener.Event.DEAD : MqMetricsListener.Event.RETRIED;
+                default -> null;
+            };
+            if (event != null) metric(queue, event, 1, 0);
+        }
+        return accepted;
     }
     private boolean pendingOperation(String queue, String operation, String id, Object argument) {
         Checks.name(id, "消息编号");

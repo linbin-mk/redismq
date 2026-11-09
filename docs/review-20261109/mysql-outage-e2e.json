@@ -1,0 +1,46 @@
+{
+  "synthetic_fixture": true,
+  "started_at": 1794191251898,
+  "before": {
+    "succeeded": 293,
+    "accepted": 311,
+    "rejected": 18,
+    "synthetic": true
+  },
+  "before_acknowledged": 114,
+  "during_mysql_down": {
+    "succeeded": 322,
+    "accepted": 343,
+    "rejected": 20,
+    "synthetic": true
+  },
+  "history_http_during_outage": 503,
+  "after": {
+    "succeeded": 358,
+    "accepted": 380,
+    "rejected": 22,
+    "synthetic": true
+  },
+  "after_acknowledged": 179,
+  "history_status": {
+    "enabled": true,
+    "state": "RUNNING",
+    "sourceId": "local-e2e-synthetic",
+    "namespace": "history:e2e",
+    "retentionMillis": 432000000,
+    "sampleIntervalMillis": 10000,
+    "collector": true,
+    "lastWriteAt": 1794191269126,
+    "lastSampleAt": 1794191269144,
+    "lastCleanupAt": 1794191269109,
+    "pendingBuckets": 2,
+    "droppedEvents": 0,
+    "writeFailures": 4,
+    "skippedQueues": 0,
+    "cleanupRows": 0,
+    "error": null
+  },
+  "retention_points": 17,
+  "finished_at": 1794191269692,
+  "passed": true
+}

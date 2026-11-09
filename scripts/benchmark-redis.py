@@ -94,7 +94,7 @@ def run(redis, script, label, size, messages):
             if label == 'baseline':
                 deliveries = json.loads(batch)['messages']
             else:
-                deliveries = [json.loads(batch[i]) for i in range(1, len(batch), 2)]
+                deliveries = [json.loads(batch[i]) for i in range(4, len(batch), 2)]
             if not deliveries:
                 break
             counts.append(len(deliveries))

@@ -4,32 +4,94 @@
 
 A Redis-backed task queue for Java, with delayed delivery, competing consumers, acknowledgments, visibility timeouts, retries, and an optional read-only dashboard.
 
-- Version: `0.2.0`
-- Java package: `com.mk.mq`
-- Maven groupId: `io.github.linbin-mk`
-- License: [MIT](LICENSE)
-- Main branch: `master`
+## Maven dependencies
 
-## What changed in 0.2.0
+Requires **Java 17+ and Redis 6.2+**. Choose one dependency from Maven Central and add it to your `pom.xml`; no additional repository is required.
 
-- Separate payloads from metadata to reduce JSON work on receive, renewal and acknowledgment; each receive returns at most 16 messages and 64 KiB of payload.
-- Bound total payload bytes, deduplication entries and the queue directory; fix sends bypassing Redis OOM checks.
-- Remove canceled timer tasks immediately, enforce processing deadlines independently, and recover the Lua SHA cache automatically.
-- Gate releases on real Redis 6.2 / 7.4 integration, concurrent-load and OOM tests.
+| Use case | artifactId | Includes |
+|---|---|---|
+| Spring Boot messaging | `redis-mq-spring-boot-starter` | core |
+| Messaging + live read-only dashboard | `redis-mq-dashboard` | starter, core |
+| Messaging + dashboard + MySQL history | `redis-mq-dashboard-mysql` | dashboard, starter, core |
+| Plain Java application | `redis-mq-core` | Core API and consumer runtime |
 
-**Upgrading from 0.1.0 requires a storage migration or draining queues with the old client first. Storage format 2 cannot run alongside old clients. Pause all producers, consumers and administrative writes during migration. Queue names no longer allow colons, and a JSON payload is limited to 64 KiB.**
+### Spring Boot
 
-See the [changelog](CHANGELOG.md), [capacity and upgrade guide](docs/容量保护与升级.md), and [local validation results](docs/review-20261108/验收报告.md).
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-spring-boot-starter</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
 
-## Modules
+Supply a `RedissonClient` bean to get an auto-configured `RedisMq`. Consumer threads start only when listeners are registered. The component reuses the client without changing its settings or owning its lifecycle.
 
-| Module | Purpose |
-|---|---|
-| redis-mq-core | Message state machine, Lua scripts, and consumer runtime; usable in plain Java applications |
-| redis-mq-spring-boot-starter | Spring Boot auto-configuration and annotated listeners |
-| redis-mq-dashboard | Optional embedded read-only dashboard; includes the starter and core |
+### Add the live dashboard
 
-The core requires no database, configuration service, or separate message broker process. The application supplies the Redis client and external configuration.
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-dashboard</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
+
+The dashboard is disabled by default. [Enable it](#embedded-dashboard) and visit `/redis-mq/dashboard/`. This dependency does not bring in MySQL.
+
+### Add MySQL history
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-dashboard-mysql</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
+
+Persist queue trends, per-minute metrics and P95 latency with a default five-day retention window. Explicitly initialize the analytics tables and enable persistence; see the [MySQL configuration and schema guide](docs/MySQL历史分析.md). An isolated small pool leaves your business data source unchanged. Analytics degrade during database failures while MQ operations continue; the statistics buffer is bounded.
+
+### Plain Java
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-core</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
+
+Supply and manage your own `RedissonClient`. The core requires no database, configuration service or separate message broker process.
+
+## Monitoring features
+
+These focused screenshots show the component's own UI with **synthetic example data**, without connecting to a business system. Values are not performance measurements. The dashboard only reads data; queries do not recover, replay or delete messages. UI labels are currently in Chinese.
+
+### Live state and backlog
+
+See ready, delayed, processing and dead-letter counts, backlog trends for the current page, and expired-lease or dead-letter notices. Live trends begin sampling when the page opens.
+
+![Live queue counts, backlog and notices with synthetic example data](docs/images/dashboard-runtime.jpg)
+
+### MySQL history and per-minute metrics
+
+Select a queue and a one-hour, 24-hour, five-day or custom range. Switch between backlog, processing rates and P95. Persisted data survives page reloads; missing windows remain gaps. Retention is configurable, with automatic bounded cleanup.
+
+![MySQL history range, per-minute metrics and P95 latency with synthetic example data](docs/images/dashboard-history.jpg)
+
+### Delivery details and failure reasons
+
+Browse existing messages by state and load delivery counts, failure reasons and JSON payloads on demand. MySQL analytics do not archive individual completed messages or business payloads.
+
+<img src="docs/images/dashboard-message-inspect.jpg" alt="Delivery details, dead-letter reason and on-demand JSON payload with synthetic example data" width="560">
+
+## What's new in 0.3.0 and upgrading
+
+Adds optional MySQL history, bounded per-minute aggregation, idempotent multi-instance counters, P95 histograms, collector leases, query scan limits and a default rolling five-day retention window. Metric events accumulate in memory without adding Redis monitoring logs.
+
+Upgrading from `0.2.0` keeps storage format 2 and requires no additional migration. MySQL remains optional. **Upgrading from `0.1.0` requires pausing writes and migrating, or draining with the old client first. Do not mix format 1 clients with the new format.**
+
+[Changelog](CHANGELOG.md) · [Capacity and upgrades](docs/容量保护与升级.md) · [Docker and browser validation](docs/review-20261109/验收报告.md)
 
 ## Architecture and message lifecycle
 
@@ -79,48 +141,6 @@ Expired leases are recovered by later consumer receive operations, not by dashbo
 ## Requirements
 
 Requires Java 17+, Maven, and Redis 6.2+. The Spring Boot modules use Spring Boot 3.5.16 and Redisson 3.52.0.
-
-## Maven dependencies
-
-The examples below use version `0.2.0` from the default Maven Central repository. Add one of the following components to `<dependencies>` in your application's `pom.xml`.
-
-### Spring Boot application
-
-```xml
-<dependency>
-    <groupId>io.github.linbin-mk</groupId>
-    <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.2.0</version>
-</dependency>
-```
-
-The starter includes the core module. The Spring Boot application must provide a `RedissonClient` bean. The component reuses this client without changing its connection settings or taking ownership of its lifecycle. Auto-configuration supplies a `RedisMq` bean; consumer threads start only when listeners are registered.
-
-### Spring Boot application with the dashboard
-
-For the embedded monitoring dashboard, use the following dependency, which includes both the starter and core:
-
-```xml
-<dependency>
-    <groupId>io.github.linbin-mk</groupId>
-    <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.2.0</version>
-</dependency>
-```
-
-The application must also provide a `RedissonClient` bean. The dashboard is disabled by default; see [Embedded dashboard](#embedded-dashboard) to enable it.
-
-### Plain Java application
-
-Plain Java applications can depend on the core module and supply and manage their own `RedissonClient`:
-
-```xml
-<dependency>
-    <groupId>io.github.linbin-mk</groupId>
-    <artifactId>redis-mq-core</artifactId>
-    <version>0.2.0</version>
-</dependency>
-```
 
 ## Build from source
 
@@ -230,7 +250,7 @@ Dead letters remain until explicitly handled and count toward payload capacity. 
 
 ## Embedded dashboard
 
-Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.2.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
+Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.3.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
 
 ```yaml
 redis-mq:
@@ -245,23 +265,11 @@ redis-mq:
 
 The password comes from the runtime environment; there is no default password. Enabling the dashboard requires a separate administrator password of at least sixteen characters. Open `/redis-mq/dashboard/` through the application's HTTPS endpoint and sign in with HTTP Basic authentication.
 
-The page provides queue counts, expired-lease indicators, paginated messages, dead-letter errors, and on-demand payload inspection. Trends start sampling when the page is opened; historical metrics are not persisted. Totals cover successfully read queues on the current page, not a transactionally consistent snapshot across queues.
+The page provides queue counts, expired-lease indicators, paginated messages, dead-letter errors, and on-demand payload inspection. The basic chart samples in browser memory. The optional MySQL extension adds persistent history, per-minute processing metrics and latency analysis that remain available after a page refresh. Totals cover successfully read queues on the current page, not a transactionally consistent snapshot across queues.
 
 The dashboard exposes read operations only. It does not recover leases, replay, send, cancel, or delete messages. The application retains control over authentication for other paths. The separate dashboard security chain has order `-100` and matches only dashboard paths; adjust the application's filter ordering if a higher-priority chain matches all paths.
 
 All page assets ship in the component JAR. No external fonts, CDN, or frontend build is required.
-
-### Dashboard preview
-
-These images render the bundled dashboard with **synthetic example data**, without connecting to Redis or an application system. The values illustrate the UI and are not benchmark results. The dashboard UI shown here is in Chinese.
-
-**Overview: queue counts, backlog trends, expired leases, and the queue directory.**
-
-![Redis MQ dashboard overview with synthetic example data](docs/images/dashboard-overview.png)
-
-**Message details: delivery count, timestamps, failure reason, and on-demand JSON payload.**
-
-![Redis MQ message details with synthetic example data](docs/images/dashboard-message-detail.png)
 
 ## Implementation and guarantees
 

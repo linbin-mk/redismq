@@ -1,0 +1,40 @@
+[
+  {
+    "name": "redis-mq-history-redis",
+    "image": "redis:7.4-alpine",
+    "memory_limit_bytes": 268435456,
+    "cpu_limit": 2.0,
+    "version": "7.4.12",
+    "slowlog_threshold_usec": 1000
+  },
+  {
+    "name": "redis-mq-history-redis62",
+    "image": "redis:6.2-alpine",
+    "memory_limit_bytes": 268435456,
+    "cpu_limit": 2.0,
+    "version": "6.2.24",
+    "slowlog_threshold_usec": 10000
+  },
+  {
+    "name": "redis-mq-history-mysql",
+    "image": "mysql:8.0.28",
+    "memory_limit_bytes": 805306368,
+    "cpu_limit": 2.0
+  },
+  {
+    "name": "redis-mq-history-oom",
+    "image": "redis:7.4-alpine",
+    "memory_limit_bytes": 134217728,
+    "cpu_limit": 2.0,
+    "version": "7.4.12",
+    "slowlog_threshold_usec": 10000
+  },
+  {
+    "name": "redis-mq-history-oom62",
+    "image": "redis:6.2-alpine",
+    "memory_limit_bytes": 134217728,
+    "cpu_limit": 2.0,
+    "version": "6.2.24",
+    "slowlog_threshold_usec": 10000
+  }
+]

@@ -158,14 +158,19 @@ if operation == 'send' then
 elseif operation == 'receive' then
     cleanDedup()
     -- 恢复和领取均有批次上限，避免单次脚本长时间占用 Redis。
+    local recovered, recoveredRetry, recoveredDead = 0, 0, 0
     local expired = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', now, 'LIMIT', 0, 8)
     for _, id in ipairs(expired) do
         local message = load(id)
-        if message and message.state == 'PROCESSING' and message.leaseUntil <= now then retry(message, '处理权超时')
+        if message and message.state == 'PROCESSING' and message.leaseUntil <= now then
+            retry(message, '处理权超时')
+            recovered = recovered + 1
+            if message.state == 'DEAD' then recoveredDead = recoveredDead + 1
+            else recoveredRetry = recoveredRetry + 1 end
         elseif not message then redis.call('ZREM', KEYS[2], id) end
     end
     local ids = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', now, 'LIMIT', 0, math.min(16, tonumber(ARGV[3])))
-    local messages = {0}
+    local messages = {0, recovered, recoveredRetry, recoveredDead}
     local responseBytes = 0
     for _, id in ipairs(ids) do
         local message = load(id)

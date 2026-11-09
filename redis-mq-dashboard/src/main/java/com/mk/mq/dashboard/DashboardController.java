@@ -15,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.net.URI;
+import java.util.function.Supplier;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +28,27 @@ public final class DashboardController {
     public static final String BASE = "/redis-mq/dashboard";
     private static final Logger log = LoggerFactory.getLogger(DashboardController.class);
     private final RedisMq mq;
-    DashboardController(RedisMq mq) { this.mq = mq; }
+    private final Supplier<DashboardHistory> history;
+    DashboardController(RedisMq mq) { this(mq, () -> null); }
+    DashboardController(RedisMq mq, Supplier<DashboardHistory> history) { this.mq = mq; this.history = history; }
+
+    @GetMapping("/api/history/status")
+    public DashboardHistory.Status historyStatus() {
+        DashboardHistory provider = history.get();
+        return provider == null ? DashboardHistory.Status.disabled() : provider.status();
+    }
+
+    @GetMapping("/api/queues/{queue}/history")
+    public DashboardHistory.Result history(@PathVariable String queue, @RequestParam(required = false) Long from,
+                                           @RequestParam(required = false) Long to,
+                                           @RequestParam(defaultValue = "300") int points) {
+        mq.storageKeys(queue);
+        if (points < 1 || points > 1000 || (from != null && from < 0) || (to != null && to < 0)
+                || (from != null && to != null && from >= to)) throw new IllegalArgumentException("历史查询参数不合法");
+        DashboardHistory provider = history.get();
+        if (provider == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "历史持久化未启用");
+        return provider.query(queue, from, to, points);
+    }
 
     @GetMapping("")
     public ResponseEntity<Void> redirect(HttpServletRequest request) {
@@ -39,6 +60,9 @@ public final class DashboardController {
     public ResponseEntity<Resource> styles() { return resource("dashboard.css", MediaType.parseMediaType("text/css")); }
     @GetMapping(value = "/dashboard.js", produces = "text/javascript")
     public ResponseEntity<Resource> script() { return resource("dashboard.js", MediaType.parseMediaType("text/javascript")); }
+
+    @GetMapping(value = "/history.js", produces = "text/javascript")
+    public ResponseEntity<Resource> historyScript() { return resource("history.js", MediaType.parseMediaType("text/javascript")); }
 
     @GetMapping("/api/overview")
     public Overview overview(@RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "20") int count) {
@@ -69,6 +93,14 @@ public final class DashboardController {
         return message;
     }
 
+    @ExceptionHandler(DashboardHistory.UnavailableException.class)
+    public ResponseEntity<Map<String, String>> historyUnavailable(DashboardHistory.UnavailableException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).cacheControl(CacheControl.noStore()).body(Map.of("message", exception.getMessage()));
+    }
+    @ExceptionHandler(DashboardHistory.QueryLimitException.class)
+    public ResponseEntity<Map<String, String>> historyTooLarge(DashboardHistory.QueryLimitException exception) {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore()).body(Map.of("message", exception.getMessage()));
+    }
     @ExceptionHandler({IllegalArgumentException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<Map<String, String>> badRequest() {
         return ResponseEntity.badRequest().cacheControl(CacheControl.noStore()).body(Map.of("message", "查询参数不合法"));

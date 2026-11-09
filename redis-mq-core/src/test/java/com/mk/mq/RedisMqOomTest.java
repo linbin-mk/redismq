@@ -40,7 +40,15 @@ class RedisMqOomTest {
             assertEquals((long) accepted * 65536, mq.stats(queue).payloadBytes());
             assertEquals(accepted, redis.getMap(mq.storageKeys(queue).get(7), StringCodec.INSTANCE).size());
             assertEquals(firstId, mq.send(queue, body, first).messageId());
-            assertThrows(RedisException.class, () -> mq.send(queue, body, first.withMessageId(UUID.randomUUID().toString())));
+            // 64 KiB 正文被拒绝后，短防重别名仍可能容纳；连接缓冲释放也会改变即时余量。
+            // 两种结果都合法，但别名绝不能创建第二条消息或写入正文。
+            try {
+                SendResult alias = mq.send(queue, body, first.withMessageId(UUID.randomUUID().toString()));
+                assertTrue(alias.duplicate());
+                assertEquals(firstId, alias.messageId());
+            } catch (RedisException full) { assertTrue(full.getMessage().contains("maxmemory"), full.getMessage()); }
+            assertEquals(accepted, mq.stats(queue).total());
+            assertEquals((long) accepted * 65536, mq.stats(queue).payloadBytes());
             Delivery draining = mq.receive(queue, 1, Duration.ofMinutes(1)).deliveries().get(0);
             assertTrue(mq.acknowledge(queue, processing), "OOM 状态下仍须能够确认并释放正文");
             assertTrue(mq.acknowledge(queue, draining), "OOM 状态下已有积压仍须能够继续领取并释放空间");

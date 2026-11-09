@@ -1,0 +1,74 @@
+{
+  "captured_at": 1794191221217,
+  "scope": "本轮隔离容器累计近期慢日志，非仅单次负载",
+  "redis": [
+    {
+      "port": 16379,
+      "threshold_usec": 1000,
+      "slowlog_length": 128,
+      "recent_entries": 128,
+      "max_recent_duration_usec": 9818,
+      "recent_command_counts": {
+        "DEL": 2,
+        "EVALSHA": 114,
+        "GET": 1,
+        "HGET": 1,
+        "HSET": 1,
+        "TYPE": 6,
+        "ZADD": 3
+      },
+      "evicted_keys": 0,
+      "rejected_connections": 0
+    },
+    {
+      "port": 16380,
+      "threshold_usec": 10000,
+      "slowlog_length": 3,
+      "recent_entries": 3,
+      "max_recent_duration_usec": 20616,
+      "recent_command_counts": {
+        "EVALSHA": 3
+      },
+      "evicted_keys": 0,
+      "rejected_connections": 0
+    }
+  ],
+  "filtered_recent_entries": [
+    {
+      "port": 16379,
+      "key_prefix": "history:e2e",
+      "recent_slow_entries": 27,
+      "max_duration_usec": 7662
+    },
+    {
+      "port": 16379,
+      "key_prefix": "history-load:",
+      "recent_slow_entries": 86,
+      "max_duration_usec": 9818
+    },
+    {
+      "port": 16379,
+      "key_prefix": "history-test:",
+      "recent_slow_entries": 0,
+      "max_duration_usec": 0
+    },
+    {
+      "port": 16380,
+      "key_prefix": "history:e2e",
+      "recent_slow_entries": 0,
+      "max_duration_usec": 0
+    },
+    {
+      "port": 16380,
+      "key_prefix": "history-load:",
+      "recent_slow_entries": 0,
+      "max_duration_usec": 0
+    },
+    {
+      "port": 16380,
+      "key_prefix": "history-test:",
+      "recent_slow_entries": 0,
+      "max_duration_usec": 0
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "redis": "6.2.24",
+  "result": "BUILD SUCCESS",
+  "suites": [
+    {
+      "suite": "com.mk.mq.OptionsTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.RedisMqIntegrationTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.RedisMqLoadTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.RedisMqOomTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.DashboardTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.HistoryAutoConfigurationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.HistoryRepositoryTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.HistoryWebE2ETest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.MinuteMetricsTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.MysqlHistoryIntegrationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.dashboard.mysql.MysqlHistoryLoadTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.mk.mq.spring.RedisMqAutoConfigurationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "totals": {
+    "tests": 67,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "measurements": [
+    "MQ_LOAD messages=4000 seconds=5.465 messagesPerSecond=731.9 duplicates=0 payloadBytes=0",
+    "MQ_OOM accepted=89 newSendRejected=true duplicateAllowed=true ackAllowed=true",
+    "MYSQL_HISTORY_LOAD messages=4000 seconds=4.900 messagesPerSecond=816.3 dropped=0"
+  ]
+}

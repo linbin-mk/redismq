@@ -4,32 +4,94 @@
 
 基于 Redis 的 Java 可靠任务队列，提供延时投递、竞争消费、成功确认、超时恢复、失败重试和只读监控看板。
 
-- 版本：`0.2.0`
-- Java 基础包：`com.mk.mq`
-- Maven groupId：`io.github.linbin-mk`
-- 开源协议：[MIT](LICENSE)
-- 主分支：`master`
+## Maven 引用
 
-## 0.2.0 更新
+需要 **Java 17+、Redis 6.2+**。从 Maven Central 选择一个依赖添加到 `pom.xml`，无需配置额外仓库。
 
-- 正文与元数据分离，大消息领取、续期和确认减少 JSON 编解码；领取上限为 16 条、正文合计 64 KiB。
-- 新增正文总字节数、防重索引和队列目录容量保护，修复发送绕过 Redis OOM 检查的问题。
-- 消费者取消的定时任务立即清理，最长处理时间由独立线程计时；脚本使用 SHA 缓存并自动恢复。
-- Redis 6.2 / 7.4 的真实集成、并发和 OOM 测试纳入发布前检查。
+| 使用场景 | artifactId | 已包含 |
+|---|---|---|
+| Spring Boot 消息收发 | `redis-mq-spring-boot-starter` | core |
+| 消息收发 + 实时只读看板 | `redis-mq-dashboard` | starter、core |
+| 消息收发 + 看板 + MySQL 历史分析 | `redis-mq-dashboard-mysql` | dashboard、starter、core |
+| 普通 Java 应用 | `redis-mq-core` | 核心 API 与消费运行时 |
 
-**从 0.1.0 升级：存储格式变为版本 2，新旧客户端不能混跑。先停止生产、消费和管理写入，迁移存量数据或用旧版排空后再切换；队列名不再允许冒号，单条 JSON 正文最多 64 KiB。**
+### Spring Boot
 
-阅读[更新记录](CHANGELOG.md)、[容量配置与升级步骤](docs/容量保护与升级.md)和[本机验收结果](docs/review-20261108/验收报告.md)。
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-spring-boot-starter</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
 
-## 模块
+应用提供一个 `RedissonClient` Bean，自动配置即可提供 `RedisMq`；声明监听器后才启动消费线程。组件复用客户端，不修改连接配置或接管其生命周期。
 
-| 模块 | 用途 |
-|---|---|
-| redis-mq-core | 消息状态机、Lua 脚本、消费运行时；可用于普通 Java 应用 |
-| redis-mq-spring-boot-starter | Spring Boot 自动配置与注解监听器 |
-| redis-mq-dashboard | 可选的应用内嵌只读监控看板，包含 starter 与 core |
+### 加上实时监控看板
 
-核心模块不依赖数据库、配置中心或独立消息代理进程。应用负责提供 Redis 客户端和外部配置。
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-dashboard</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
+
+看板默认关闭，[启用配置](#内嵌监控看板)后访问 `/redis-mq/dashboard/`。此依赖不引入 MySQL。
+
+### 加上 MySQL 历史分析
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-dashboard-mysql</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
+
+支持队列趋势、分钟指标和 P95，默认保留最近 5 天。需要显式初始化分析表并开启持久化，见 [MySQL 配置与初始化 SQL](docs/MySQL历史分析.md)。使用独立小连接池，不替换业务数据源；数据库故障时分析降级，MQ 继续运行，统计缓冲有上限。
+
+### 普通 Java
+
+```xml
+<dependency>
+    <groupId>io.github.linbin-mk</groupId>
+    <artifactId>redis-mq-core</artifactId>
+    <version>0.3.0</version>
+</dependency>
+```
+
+由应用提供并管理 `RedissonClient`。核心模块不依赖数据库、配置中心或独立消息代理进程。
+
+## 监控功能预览
+
+以下单图截取自组件自带页面，使用**合成示例数据**说明功能，不连接业务系统，数值不代表性能测试结果。看板只提供读取接口，不触发恢复、重投或删除消息。
+
+### 实时状态与积压
+
+集中查看就绪、延迟、处理中、死信数量，以及当前页的积压趋势、过期处理权和死信提示。此处趋势从本次打开页面后开始采样。
+
+![实时队列状态、积压趋势和关注事项，使用合成示例数据](docs/images/dashboard-runtime.jpg)
+
+### MySQL 历史趋势与分钟指标
+
+按队列查询 1 小时、24 小时、5 天或自定义范围；切换积压、处理速率和 P95。刷新页面后仍可查询已持久化数据，未采集窗口显示为缺口。保留时长可配置，过期数据自动分批回收。
+
+![MySQL 历史分析：范围选择、分钟处理指标与 P95 耗时图，使用合成示例数据](docs/images/dashboard-history.jpg)
+
+### 消息详情与失败原因
+
+按状态分页查看现存消息，按需读取投递次数、失败原因及 JSON 正文；不保存已完成消息的逐条历史或业务正文到 MySQL。
+
+<img src="docs/images/dashboard-message-inspect.jpg" alt="消息投递详情、死信原因和按需读取的 JSON 正文，使用合成示例数据" width="560">
+
+## 0.3.0 更新与升级
+
+新增可选 MySQL 历史分析、有界分钟聚合、跨实例幂等累计、P95 耗时、采集租约、查询扫描上限及默认 5 天滚动回收。分析事件仅在内存累计，不新增 Redis 监控日志。
+
+从 `0.2.0` 升级保持存储格式 2，无需再次迁移；未开启扩展时不连接 MySQL。**从 `0.1.0` 升级需要先停写迁移，或用旧版排空后切换，不得与格式 1 客户端混跑。**
+
+[更新记录](CHANGELOG.md) · [容量保护与升级](docs/容量保护与升级.md) · [Docker 与页面验收](docs/review-20261109/验收报告.md)
 
 ## 架构与消息流转
 
@@ -79,48 +141,6 @@ flowchart LR
 ## 环境要求
 
 要求 Java 17 及以上、Maven、Redis 6.2 及以上。Spring Boot 模块基于 3.5.16，Redis 客户端基于 Redisson 3.52.0。
-
-## Maven 引用
-
-以下示例使用 `0.2.0`，通过默认 Maven Central 仓库引用，在项目 `pom.xml` 的 `<dependencies>` 中按需添加以下一个组件。
-
-### Spring Boot 应用
-
-```xml
-<dependency>
-    <groupId>io.github.linbin-mk</groupId>
-    <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.2.0</version>
-</dependency>
-```
-
-starter 已包含核心模块。Spring Boot 应用须提供一个 `RedissonClient` Bean；组件复用该客户端，不修改其连接配置，不创建或关闭应用持有的客户端。引入依赖后自动提供 `RedisMq` Bean；声明监听器后才启动消费线程。
-
-### Spring Boot 应用与监控看板
-
-需要内嵌监控看板时，使用以下依赖，它已包含 starter 与核心模块：
-
-```xml
-<dependency>
-    <groupId>io.github.linbin-mk</groupId>
-    <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.2.0</version>
-</dependency>
-```
-
-应用同样须提供 `RedissonClient` Bean。看板默认关闭，启用方式见[内嵌监控看板](#内嵌监控看板)。
-
-### 普通 Java 应用
-
-普通 Java 应用可单独引用核心模块，由应用提供并管理 `RedissonClient`：
-
-```xml
-<dependency>
-    <groupId>io.github.linbin-mk</groupId>
-    <artifactId>redis-mq-core</artifactId>
-    <version>0.2.0</version>
-</dependency>
-```
 
 ## 从源码构建
 
@@ -230,7 +250,7 @@ consumer.close();
 
 ## 内嵌监控看板
 
-Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.2.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
+Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.3.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
 
 ```yaml
 redis-mq:
@@ -245,23 +265,11 @@ redis-mq:
 
 口令从运行环境注入，不使用默认值。启用时至少需要十六位独立管理员口令。浏览器通过应用的 HTTPS 入口访问 `/redis-mq/dashboard/`，使用 HTTP Basic 登录。
 
-页面提供队列统计、过期处理权提示、消息分页、死信原因及按需正文查看。趋势从本次打开页面后开始采样，不提供持久化历史指标。汇总只涵盖当前页成功读取的队列，跨队列统计不是事务快照。
+页面提供队列统计、过期处理权提示、消息分页、死信原因及按需正文查看。基础趋势从本次打开页面后开始采样；启用可选 MySQL 扩展后，另提供跨页面刷新的历史趋势、分钟级处理指标及耗时分析。汇总只涵盖当前页成功读取的队列，跨队列统计不是事务快照。
 
 看板只有读取接口，不触发处理权恢复、重投、发送、取消或删除。应用其他路径的认证仍由应用维护；看板独立认证链顺序为 `-100`，只匹配看板路径。若应用存在更高优先级且匹配所有路径的过滤链，需要自行调整匹配顺序。
 
 页面资源随组件 JAR 提供，无外部字体、CDN 或前端构建要求。
-
-### 看板预览
-
-以下图片使用组件自带页面和**合成示例数据**渲染，不连接实际 Redis 或业务系统；数值仅用于展示界面，不代表性能测试结果。
-
-**队列总览：统计、积压趋势、过期处理权提示与队列目录。**
-
-![Redis MQ 监控看板总览，使用合成示例数据](docs/images/dashboard-overview.png)
-
-**消息详情：投递次数、时间、失败原因与按需读取的 JSON 正文。**
-
-![Redis MQ 消息详情，使用合成示例数据](docs/images/dashboard-message-detail.png)
 
 ## 实现与保证范围
 
