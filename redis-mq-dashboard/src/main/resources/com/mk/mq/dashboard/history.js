@@ -13,7 +13,7 @@
     try {
       const response = await fetch(new URL(`./api/${path}`, window.location.href), {credentials: 'same-origin', cache: 'no-store', signal: controller.signal});
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(response.status === 401 ? '管理员登录已失效，请重新登录' : result.message || `历史查询失败（${response.status}）`);
+      if (!response.ok) throw new Error(response.status === 401 ? '访问未获授权，请检查当前应用的登录状态' : result.message || `历史查询失败（${response.status}）`);
       return result;
     } finally { clearTimeout(timeout); }
   }

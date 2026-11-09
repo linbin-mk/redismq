@@ -7,7 +7,7 @@ Redis MQ
 主要直接依赖：
 - Redisson：Apache License 2.0
   https://github.com/redisson/redisson
-- Spring Boot、Spring Framework、Spring Security：Apache License 2.0
+- Spring Boot、Spring Framework：Apache License 2.0
   https://spring.io/projects
 - Jackson Databind：Apache License 2.0
   https://github.com/FasterXML/jackson-databind

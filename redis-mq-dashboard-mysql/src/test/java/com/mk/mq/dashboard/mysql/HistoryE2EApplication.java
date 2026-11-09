@@ -20,7 +20,6 @@ import java.util.concurrent.atomic.AtomicLong;
 @SpringBootConfiguration
 @EnableAutoConfiguration
 public class HistoryE2EApplication {
-    static final String PASSWORD = "local-e2e-monitor-2026";
     @Bean(destroyMethod = "shutdown") RedissonClient redis() {
         Config config = new Config().setThreads(4).setNettyThreads(4);
         config.useSingleServer().setAddress(System.getProperty("mq.redis", "redis://127.0.0.1:16379"))
@@ -75,7 +74,7 @@ public class HistoryE2EApplication {
         defaults.put("server.address", "127.0.0.1"); defaults.put("server.port", "18083");
         defaults.put("spring.application.name", "redis-mq-history-e2e");
         defaults.put("redis-mq.namespace", "history:e2e");
-        defaults.put("redis-mq.dashboard.enabled", true); defaults.put("redis-mq.dashboard.password", PASSWORD);
+        defaults.put("redis-mq.dashboard.enabled", true);
         defaults.put("redis-mq.dashboard.persistence.enabled", true); defaults.put("redis-mq.dashboard.persistence.source-id", p.getSourceId());
         defaults.put("redis-mq.dashboard.persistence.datasource.url", p.getDatasource().getUrl());
         defaults.put("redis-mq.dashboard.persistence.datasource.username", p.getDatasource().getUsername());

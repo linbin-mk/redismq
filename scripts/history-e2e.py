@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """仅用于本机 HistoryE2EApplication：实际停止/启动专用 MySQL，验证 MQ 隔离与历史恢复。"""
 import argparse
-import base64
 import json
 import os
 import subprocess
 import time
 from pathlib import Path
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
 
 
@@ -30,13 +29,10 @@ def main():
     inspected = json.loads(subprocess.check_output(['docker', 'inspect', args.mysql_container]))[0]
     if 'MYSQL_DATABASE=rmq_history_test' not in inspected['Config']['Env']:
         raise ValueError('目标不是指定的隔离 E2E 数据库')
-    password = os.environ.get('MQ_HISTORY_E2E_PASSWORD', 'local-e2e-monitor-2026')
-    auth = 'Basic ' + base64.b64encode(('monitor:' + password).encode()).decode()
 
     def request(path):
-        req = Request(args.base_url.rstrip('/') + path, headers={'Authorization': auth})
         try:
-            with urlopen(req, timeout=5) as response:
+            with urlopen(args.base_url.rstrip('/') + path, timeout=5) as response:
                 return response.status, json.load(response)
         except HTTPError as error:
             return error.code, json.load(error)

@@ -32,7 +32,6 @@ class HistoryWebE2ETest {
         try (var source = MysqlTestSupport.source(OPTIONS)) { MysqlTestSupport.initialize(source); }
         registry.add("redis-mq.namespace", () -> NAMESPACE);
         registry.add("redis-mq.dashboard.enabled", () -> true);
-        registry.add("redis-mq.dashboard.password", () -> HistoryE2EApplication.PASSWORD);
         registry.add("redis-mq.dashboard.persistence.enabled", () -> true);
         registry.add("redis-mq.dashboard.persistence.source-id", OPTIONS::getSourceId);
         registry.add("redis-mq.dashboard.persistence.flush-interval", () -> "1s");
@@ -43,9 +42,8 @@ class HistoryWebE2ETest {
         registry.add("redis-mq.dashboard.persistence.datasource.username", () -> OPTIONS.getDatasource().getUsername());
         registry.add("redis-mq.dashboard.persistence.datasource.password", () -> OPTIONS.getDatasource().getPassword());
     }
-    private TestRestTemplate authenticated() { return http.withBasicAuth("monitor", HistoryE2EApplication.PASSWORD); }
     private DashboardHistory.Result query(String queue) {
-        return authenticated().getForObject("/redis-mq/dashboard/api/queues/" + queue + "/history", DashboardHistory.Result.class);
+        return http.getForObject("/redis-mq/dashboard/api/queues/" + queue + "/history", DashboardHistory.Result.class);
     }
     static void await(BooleanSupplier condition) throws Exception {
         long deadline = System.nanoTime() + Duration.ofSeconds(25).toNanos();
@@ -57,12 +55,13 @@ class HistoryWebE2ETest {
         redis.getKeys().delete(mq.directoryStorageKey());
         MysqlTestSupport.removeScope(source, OPTIONS.getSourceId());
     }
-    @Test void realHttpRequiresAuthenticationAndPreservesReadOnlyContract() {
-        assertEquals(401, http.getForEntity("/redis-mq/dashboard/api/history/status", String.class).getStatusCode().value());
-        assertEquals(200, authenticated().getForEntity("/redis-mq/dashboard/history.js", String.class).getStatusCode().value());
-        assertEquals(400, authenticated().getForEntity("/redis-mq/dashboard/api/queues/jobs/history?points=1001", String.class).getStatusCode().value());
-        assertEquals(400, authenticated().getForEntity("/redis-mq/dashboard/api/queues/jobs/history?from=100&to=50", String.class).getStatusCode().value());
-        assertEquals(403, authenticated().postForEntity("/redis-mq/dashboard/api/history/delete", null, String.class).getStatusCode().value());
+    @Test void realHttpPreservesReadOnlyContractWithoutComponentAuthentication() {
+        assertEquals(200, http.getForEntity("/redis-mq/dashboard/api/history/status", String.class).getStatusCode().value());
+        assertEquals(200, http.getForEntity("/redis-mq/dashboard/history.js", String.class).getStatusCode().value());
+        assertEquals(400, http.getForEntity("/redis-mq/dashboard/api/queues/jobs/history?points=1001", String.class).getStatusCode().value());
+        assertEquals(400, http.getForEntity("/redis-mq/dashboard/api/queues/jobs/history?from=100&to=50", String.class).getStatusCode().value());
+        assertEquals(405, http.postForEntity("/redis-mq/dashboard/api/history/status", null, String.class).getStatusCode().value());
+        assertEquals(404, http.postForEntity("/redis-mq/dashboard/api/history/delete", null, String.class).getStatusCode().value());
     }
     @Test void realMessagesBecomeDurableHistoryWithRetriesFailuresAndLatencies() throws Exception {
         String queue = "runtime";

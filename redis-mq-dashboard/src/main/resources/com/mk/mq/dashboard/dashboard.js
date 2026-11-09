@@ -18,7 +18,7 @@
     try {
       const response = await fetch(new URL(`./api/${path}`, window.location.href), {credentials: 'same-origin', cache: 'no-store', signal: controller.signal, headers: {Accept: 'application/json'}});
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(response.status === 401 ? '管理员登录已失效，请重新打开页面登录' : payload.message || `读取失败（${response.status}）`);
+      if (!response.ok) throw new Error(response.status === 401 ? '访问未获授权，请检查当前应用的登录状态' : payload.message || `读取失败（${response.status}）`);
       return payload;
     } finally { clearTimeout(timeout); }
   }

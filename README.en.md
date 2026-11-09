@@ -21,7 +21,7 @@ Requires **Java 17+ and Redis 6.2+**. Choose one dependency from Maven Central a
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -33,7 +33,7 @@ Supply a `RedissonClient` bean to get an auto-configured `RedisMq`. Consumer thr
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -45,7 +45,7 @@ The dashboard is disabled by default. [Enable it](#embedded-dashboard) and visit
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard-mysql</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -57,7 +57,7 @@ Persist queue trends, per-minute metrics and P95 latency with a default five-day
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-core</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -85,7 +85,9 @@ Browse existing messages by state and load delivery counts, failure reasons and 
 
 <img src="docs/images/dashboard-message-inspect.jpg" alt="Delivery details, dead-letter reason and on-demand JSON payload with synthetic example data" width="560">
 
-## What's new in 0.3.0 and upgrading
+## What's new in 0.3.1 and upgrading
+
+Removes built-in dashboard authentication and the Spring Security dependency. The host application owns security. When upgrading from `0.3.0`, remove `redis-mq.dashboard.username/password` and configure host access controls for `/redis-mq/dashboard` and all its subpaths.
 
 Adds optional MySQL history, bounded per-minute aggregation, idempotent multi-instance counters, P95 histograms, collector leases, query scan limits and a default rolling five-day retention window. Metric events accumulate in memory without adding Redis monitoring logs.
 
@@ -103,7 +105,7 @@ flowchart LR
         P["Producer"] --> C["redis-mq-core<br/>RedisMq public API"]
         S["Spring Boot starter<br/>Configuration · listener registration"] --> W["Consumer runtime<br/>Concurrency · renewal · callbacks"]
         W -->|"Receive / ACK / retry / renew"| C
-        D["Optional dashboard<br/>Separate authentication · read-only"] -->|"Queries"| C
+        D["Optional dashboard<br/>Host-managed security · read-only"] -->|"Queries"| C
     end
     subgraph REDIS["Redis"]
         Q["Queue state<br/>scheduled / processing<br/>messages / dead"]
@@ -250,24 +252,22 @@ Dead letters remain until explicitly handled and count toward payload capacity. 
 
 ## Embedded dashboard
 
-Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.3.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
+Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.3.1` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
 
 ```yaml
 redis-mq:
   namespace: example:dev
   dashboard:
     enabled: true
-    username: monitor
-    password: ${REDIS_MQ_DASHBOARD_PASSWORD}
     queues:
       - task-execution
 ```
 
-The password comes from the runtime environment; there is no default password. Enabling the dashboard requires a separate administrator password of at least sixteen characters. Open `/redis-mq/dashboard/` through the application's HTTPS endpoint and sign in with HTTP Basic authentication.
+Open `/redis-mq/dashboard/` in the browser. The component does not depend on Spring Security or provide built-in accounts, passwords, or authentication filters. The host application owns authentication, authorization, HTTPS, and security headers. Include `/redis-mq/dashboard` and all its subpaths, including page resources and APIs, in the host application's access controls.
 
 The page provides queue counts, expired-lease indicators, paginated messages, dead-letter errors, and on-demand payload inspection. The basic chart samples in browser memory. The optional MySQL extension adds persistent history, per-minute processing metrics and latency analysis that remain available after a page refresh. Totals cover successfully read queues on the current page, not a transactionally consistent snapshot across queues.
 
-The dashboard exposes read operations only. It does not recover leases, replay, send, cancel, or delete messages. The application retains control over authentication for other paths. The separate dashboard security chain has order `-100` and matches only dashboard paths; adjust the application's filter ordering if a higher-priority chain matches all paths.
+The dashboard exposes read operations only. It does not recover leases, replay, send, cancel, or delete messages. The component registers no security filter chain and leaves the host application's security policies unchanged.
 
 All page assets ship in the component JAR. No external fonts, CDN, or frontend build is required.
 

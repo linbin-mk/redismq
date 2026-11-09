@@ -21,7 +21,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -33,7 +33,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -45,7 +45,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard-mysql</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -57,7 +57,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-core</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
@@ -85,7 +85,9 @@
 
 <img src="docs/images/dashboard-message-inspect.jpg" alt="消息投递详情、死信原因和按需读取的 JSON 正文，使用合成示例数据" width="560">
 
-## 0.3.0 更新与升级
+## 0.3.1 更新与升级
+
+移除看板内置认证和 Spring Security 依赖，安全策略由接入项目统一负责。从 `0.3.0` 升级时，删除原 `redis-mq.dashboard.username/password` 配置，并由接入项目为 `/redis-mq/dashboard` 及其全部子路径配置访问控制。
 
 新增可选 MySQL 历史分析、有界分钟聚合、跨实例幂等累计、P95 耗时、采集租约、查询扫描上限及默认 5 天滚动回收。分析事件仅在内存累计，不新增 Redis 监控日志。
 
@@ -103,7 +105,7 @@ flowchart LR
         P["生产者"] --> C["redis-mq-core<br/>RedisMq 公共 API"]
         S["Spring Boot starter<br/>自动配置 · 注解注册"] --> W["消费运行时<br/>限流 · 续期 · 回调"]
         W -->|"领取 / ACK / 重试 / 续期"| C
-        D["可选监控看板<br/>独立认证 · 只读接口"] -->|"查询"| C
+        D["可选监控看板<br/>宿主安全策略 · 只读接口"] -->|"查询"| C
     end
     subgraph REDIS["Redis"]
         Q["队列状态<br/>scheduled / processing<br/>messages 元数据 / payloads 正文 / dead"]
@@ -250,24 +252,22 @@ consumer.close();
 
 ## 内嵌监控看板
 
-Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.3.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
+Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.3.1`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
 
 ```yaml
 redis-mq:
   namespace: example:dev
   dashboard:
     enabled: true
-    username: monitor
-    password: ${REDIS_MQ_DASHBOARD_PASSWORD}
     queues:
       - task-execution
 ```
 
-口令从运行环境注入，不使用默认值。启用时至少需要十六位独立管理员口令。浏览器通过应用的 HTTPS 入口访问 `/redis-mq/dashboard/`，使用 HTTP Basic 登录。
+浏览器访问 `/redis-mq/dashboard/`。组件不引入 Spring Security，不提供内置账号、口令或认证过滤链；认证、授权、HTTPS 和安全响应头由接入项目统一负责。接入项目应将 `/redis-mq/dashboard` 及其全部子路径（含页面资源和 API）纳入自身的访问控制。
 
 页面提供队列统计、过期处理权提示、消息分页、死信原因及按需正文查看。基础趋势从本次打开页面后开始采样；启用可选 MySQL 扩展后，另提供跨页面刷新的历史趋势、分钟级处理指标及耗时分析。汇总只涵盖当前页成功读取的队列，跨队列统计不是事务快照。
 
-看板只有读取接口，不触发处理权恢复、重投、发送、取消或删除。应用其他路径的认证仍由应用维护；看板独立认证链顺序为 `-100`，只匹配看板路径。若应用存在更高优先级且匹配所有路径的过滤链，需要自行调整匹配顺序。
+看板只有读取接口，不触发处理权恢复、重投、发送、取消或删除。组件不注册安全过滤链，不改变接入项目的安全策略。
 
 页面资源随组件 JAR 提供，无外部字体、CDN 或前端构建要求。
 

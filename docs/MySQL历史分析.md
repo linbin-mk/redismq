@@ -10,7 +10,7 @@
 <dependency>
   <groupId>io.github.linbin-mk</groupId>
   <artifactId>redis-mq-dashboard-mysql</artifactId>
-  <version>0.3.0</version>
+  <version>0.3.1</version>
 </dependency>
 ```
 
@@ -20,8 +20,6 @@
 redis-mq:
   dashboard:
     enabled: true
-    username: monitor
-    password: ${MQ_DASHBOARD_PASSWORD}
     persistence:
       enabled: true
       source-id: daily-prod-redis
@@ -90,7 +88,7 @@ MySQL 删除记录后主要释放表内可复用空间，不承诺 `.ibd` 立即
 
 ## 页面与接口
 
-原实时查询继续只读。新增同一 Basic Auth 保护下的 GET 接口：
+原实时查询继续只读。组件不引入 Spring Security，页面及 API 的认证、授权和其他安全策略由接入项目统一负责，访问控制范围应包含 `/redis-mq/dashboard` 及其全部子路径。新增 GET 接口：
 
 - `/redis-mq/dashboard/api/history/status`：开关、连接状态、最近成功时间、内存窗口、丢弃计数及清理状态。
 - `/redis-mq/dashboard/api/queues/{queue}/history?from=...&to=...&points=300`：Unix 毫秒时间范围内的历史，起点按分钟窗口对齐并受保留边界约束，返回实际有效范围、分辨率、峰值、累计计数及耗时摘要。
@@ -110,7 +108,7 @@ mvn clean verify -Dmq.redis=redis://127.0.0.1:16379 "-Dmq.mysql=$MQ_TEST_MYSQL_U
 python3 scripts/start-history-e2e.py --mysql-url "$MQ_TEST_MYSQL_URL"
 ```
 
-最后一条启动只监听 127.0.0.1:18083 的测试宿主，含有界合成流量及合成历史展示数据；不进入发布 JAR。浏览器打开 `http://127.0.0.1:18083/redis-mq/dashboard/`，测试账号 monitor，专用本机测试口令为 `local-e2e-monitor-2026`，不能用于真实部署。
+最后一条启动只监听 127.0.0.1:18083 的测试宿主，含有界合成流量及合成历史展示数据；不进入发布 JAR。浏览器直接打开 `http://127.0.0.1:18083/redis-mq/dashboard/`。该本机测试宿主未配置认证；实际部署由接入项目配置访问控制。
 
 另开终端，指定本轮专用 MySQL 容器：
 

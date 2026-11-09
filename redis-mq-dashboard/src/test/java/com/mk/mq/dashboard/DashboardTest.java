@@ -1,6 +1,8 @@
 package com.mk.mq.dashboard;
 
-import com.mk.mq.RedisMq;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import com.mk.mq.spring.RedisMqAutoConfiguration;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RScoredSortedSet;
@@ -14,11 +16,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
-import org.springframework.core.annotation.Order;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,12 +23,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -40,35 +34,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "redis-mq.dashboard.enabled=true", "redis-mq.listeners-enabled=false", "redis-mq.namespace=dashboard:test"})
 @AutoConfigureMockMvc
 class DashboardTest {
-    private static final String PASSWORD = UUID.randomUUID().toString();
     private static final AtomicInteger writes = new AtomicInteger();
     @Autowired private MockMvc mvc;
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) { registry.add("redis-mq.dashboard.password", () -> PASSWORD); }
 
     @Test
-    void requiresIndependentAuthenticationForPageAndApi() throws Exception {
-        mvc.perform(get("/redis-mq/dashboard/")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/redis-mq/dashboard/api/overview")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/redis-mq/dashboard/api/overview").with(httpBasic("monitor", UUID.randomUUID().toString())))
-                .andExpect(status().isUnauthorized());
-    }
-    @Test
-    void servesSelfContainedResourcesAndSecurityHeaders() throws Exception {
-        mvc.perform(get("/redis-mq/dashboard").with(httpBasic("monitor", PASSWORD)))
+    void servesSelfContainedResourcesWithoutComponentAuthentication() throws Exception {
+        mvc.perform(get("/redis-mq/dashboard"))
                 .andExpect(status().isFound()).andExpect(header().string("Location", "/redis-mq/dashboard/"));
-        var response = mvc.perform(get("/redis-mq/dashboard/").with(httpBasic("monitor", PASSWORD)))
-                .andExpect(status().isOk()).andExpect(header().string("Content-Security-Policy", org.hamcrest.Matchers.containsString("script-src 'self'")))
+        var response = mvc.perform(get("/redis-mq/dashboard/"))
+                .andExpect(status().isOk())
                 .andReturn().getResponse();
         assertThat(response.getContentAsString(StandardCharsets.UTF_8)).contains("消息运行概览");
-        mvc.perform(get("/redis-mq/dashboard/dashboard.js").with(httpBasic("monitor", PASSWORD)))
+        mvc.perform(get("/redis-mq/dashboard/dashboard.js"))
                 .andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("textContent")));
-        mvc.perform(get("/redis-mq/dashboard/dashboard.css").with(httpBasic("monitor", PASSWORD))).andExpect(status().isOk());
+        mvc.perform(get("/redis-mq/dashboard/dashboard.css")).andExpect(status().isOk());
     }
     @Test
     void overviewUsesReadOnlyQueriesAndReportsPartialFailure() throws Exception {
         int before = writes.get();
-        mvc.perform(get("/redis-mq/dashboard/api/overview").with(httpBasic("monitor", PASSWORD)))
+        mvc.perform(get("/redis-mq/dashboard/api/overview"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.namespace").value("dashboard:test"))
                 .andExpect(jsonPath("$.totalQueues").value(2)).andExpect(jsonPath("$.queues[0].stats.ready").value(2))
                 .andExpect(jsonPath("$.queues[1].stats").isEmpty()).andExpect(jsonPath("$.queues[1].error").isNotEmpty());
@@ -76,47 +60,52 @@ class DashboardTest {
     }
     @Test
     void listHidesPayloadAndReceiptWhileDetailsExposeOnlyPublicSnapshot() throws Exception {
-        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages").with(httpBasic("monitor", PASSWORD)))
+        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value("message-1"))
                 .andExpect(jsonPath("$[0].payload").doesNotExist()).andExpect(jsonPath("$[0].receipt").doesNotExist());
-        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages/message-1").with(httpBasic("monitor", PASSWORD)))
+        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages/message-1"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.payload").value("{\"内容\":\"<script>测试</script>\"}"))
                 .andExpect(jsonPath("$.receipt").doesNotExist());
     }
     @Test
     void rejectsInvalidPaginationAndStateAndHandlesGoneMessage() throws Exception {
-        mvc.perform(get("/redis-mq/dashboard/api/overview?count=101").with(httpBasic("monitor", PASSWORD))).andExpect(status().isBadRequest());
-        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages?state=unknown").with(httpBasic("monitor", PASSWORD))).andExpect(status().isBadRequest());
-        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages/gone").with(httpBasic("monitor", PASSWORD))).andExpect(status().isNotFound());
+        mvc.perform(get("/redis-mq/dashboard/api/overview?count=101")).andExpect(status().isBadRequest());
+        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages?state=unknown")).andExpect(status().isBadRequest());
+        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/messages/gone")).andExpect(status().isNotFound());
     }
     @Test
     void doesNotOfferMutationEndpointsOrChangeHostSecurity() throws Exception {
         int before = writes.get();
-        mvc.perform(post("/redis-mq/dashboard/api/queues/demo/replay").with(httpBasic("monitor", PASSWORD)).with(csrf()))
-                .andExpect(status().isForbidden());
+        mvc.perform(post("/redis-mq/dashboard/api/overview"))
+                .andExpect(status().isMethodNotAllowed());
+        mvc.perform(post("/redis-mq/dashboard/api/queues/demo/replay")).andExpect(status().isNotFound());
         mvc.perform(get("/business/public")).andExpect(status().isOk());
-        mvc.perform(get("/business/private").with(httpBasic("monitor", PASSWORD))).andExpect(status().isForbidden());
+        mvc.perform(get("/business/private")).andExpect(status().isForbidden());
         assertThat(writes.get()).isEqualTo(before);
     }
     @Test
     void mysqlHistoryIsOptionalAndKeepsTheBaseDashboardReadOnly() throws Exception {
         int before = writes.get();
-        mvc.perform(get("/redis-mq/dashboard/api/history/status").with(httpBasic("monitor", PASSWORD)))
+        mvc.perform(get("/redis-mq/dashboard/api/history/status"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.enabled").value(false));
-        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/history").with(httpBasic("monitor", PASSWORD)))
+        mvc.perform(get("/redis-mq/dashboard/api/queues/demo/history"))
                 .andExpect(status().isServiceUnavailable());
-        mvc.perform(get("/redis-mq/dashboard/history.js").with(httpBasic("monitor", PASSWORD)))
+        mvc.perform(get("/redis-mq/dashboard/history.js"))
                 .andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("snapshotPresent")));
         assertThat(writes.get()).isEqualTo(before);
     }
     @Test
-    void staysDisabledByDefaultAndFailsClosedWithoutPassword() {
+    void staysDisabledByDefaultAndCanBeEnabledWithoutCredentials() {
         var runner = new WebApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(RedisMqAutoConfiguration.class, RedisMqDashboardAutoConfiguration.class))
                 .withBean(RedissonClient.class, DashboardTest::client, definition -> definition.setDestroyMethodName(""))
                 .withPropertyValues("redis-mq.listeners-enabled=false");
         runner.run(context -> assertThat(context).doesNotHaveBean(DashboardController.class));
-        runner.withPropertyValues("redis-mq.dashboard.enabled=true").run(context -> assertThat(context).hasFailed());
+        runner.withPropertyValues("redis-mq.dashboard.enabled=true").run(context -> {
+            assertThat(context).hasNotFailed().hasSingleBean(DashboardController.class);
+        });
+        runner.withPropertyValues("redis-mq.dashboard.enabled=true", "redis-mq.dashboard.queues=" + "demo,".repeat(100) + "last")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     private static RedissonClient client() {
@@ -152,8 +141,14 @@ class DashboardTest {
     static class Application {
         @Bean(destroyMethod = "") RedissonClient redis() { return client(); }
         @Bean HostController hostController() { return new HostController(); }
-        @Bean @Order(0) SecurityFilterChain hostSecurity(HttpSecurity http) throws Exception {
-            return http.securityMatcher("/business/**").authorizeHttpRequests(requests -> requests.requestMatchers("/business/public").permitAll().anyRequest().denyAll()).build();
+        @Bean Filter hostAccessFilter() {
+            return (request, response, chain) -> {
+                if (((HttpServletRequest) request).getRequestURI().equals("/business/private")) {
+                    ((HttpServletResponse) response).sendError(403);
+                    return;
+                }
+                chain.doFilter(request, response);
+            };
         }
     }
     @RestController
