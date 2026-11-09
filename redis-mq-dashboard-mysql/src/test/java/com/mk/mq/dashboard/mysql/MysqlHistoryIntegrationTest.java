@@ -15,12 +15,15 @@ class MysqlHistoryIntegrationTest {
     private RedissonClient redis;
     private String namespace;
     private PersistenceProperties properties;
-    @BeforeEach void connect() {
+    @BeforeEach void connect() throws Exception {
         Config config = new Config().setThreads(2).setNettyThreads(2);
         config.useSingleServer().setAddress(System.getProperty("mq.redis")).setConnectionMinimumIdleSize(1).setConnectionPoolSize(8);
         redis = Redisson.create(config);
         namespace = "history-test:" + UUID.randomUUID();
         properties = MysqlTestSupport.properties();
+        // 每个用例自行准备空库，不能依赖其他测试类先建表。
+        // 尤其数据库不可达用例本身不会访问正常数据源，但清理仍需要这些表。
+        try (var source = MysqlTestSupport.source(properties)) { MysqlTestSupport.initialize(source); }
     }
     @AfterEach void close() throws Exception {
         RedisMq mq = new RedisMq(redis, namespace);
