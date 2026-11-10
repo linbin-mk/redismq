@@ -29,7 +29,13 @@ public class RedisMqAutoConfiguration {
             namespace = environment.getProperty("spring.application.name", "application") + ":" + (profiles.isBlank() ? "default" : profiles);
         }
         ObjectMapper mapper = mappers.getIfUnique(() -> new ObjectMapper().findAndRegisterModules());
-        return new RedisMq(redis, namespace, properties.mqOptions(), mapper);
+        return new RedisMq(redis, namespace, properties.mqOptions(), mapper, properties.getProducer().options());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RedisMqProducerLifecycle redisMqProducerLifecycle(RedisMq mq) {
+        return new RedisMqProducerLifecycle(mq);
     }
 
     @Bean

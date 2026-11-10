@@ -21,12 +21,13 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** 仅依赖 Redis 的队列客户端，不创建或关闭宿主的 Redis 连接。 */
-public final class RedisMq {
+public final class RedisMq implements AutoCloseable {
     private static final String SCRIPT = loadScript("queue.lua");
     private static final String READ_SCRIPT = loadScript("queue-read.lua");
     private static final String DIRECTORY_SCRIPT = """
@@ -43,6 +44,7 @@ public final class RedisMq {
     private final String namespace;
     private final MqOptions options;
     private final ObjectMapper mapper;
+    private final AsyncSender asyncSender;
     private final AtomicReference<MqMetricsListener> metrics = new AtomicReference<>();
     private final ConcurrentMap<String, Boolean> registered = new ConcurrentHashMap<>();
 
@@ -51,10 +53,15 @@ public final class RedisMq {
     }
 
     public RedisMq(RedissonClient redis, String namespace, MqOptions options, ObjectMapper mapper) {
+        this(redis, namespace, options, mapper, ProducerOptions.defaults());
+    }
+
+    public RedisMq(RedissonClient redis, String namespace, MqOptions options, ObjectMapper mapper, ProducerOptions producerOptions) {
         this.redis = Objects.requireNonNull(redis, "Redis 客户端不能为空");
         this.namespace = Checks.name(namespace, "命名空间");
         this.options = Objects.requireNonNull(options, "队列选项不能为空");
         this.mapper = Objects.requireNonNull(mapper, "JSON 编码器不能为空").copy().deactivateDefaultTyping();
+        this.asyncSender = new AsyncSender(Objects.requireNonNull(producerOptions, "生产者选项不能为空"));
     }
 
     public SendResult send(String queue, Object payload) { return send(queue, payload, SendOptions.immediate()); }
@@ -67,6 +74,39 @@ public final class RedisMq {
         Objects.requireNonNull(sendOptions, "发送选项不能为空");
         Checks.queue(queue);
         String encoded = encode(payload);
+        return sendEncoded(queue, encoded, sendOptions);
+    }
+
+    public CompletableFuture<SendResult> sendAsync(String queue, Object payload) {
+        return sendAsync(queue, payload, SendOptions.immediate());
+    }
+
+    public CompletableFuture<SendResult> sendAsync(String queue, Object payload, Duration delay) {
+        return sendAsync(queue, payload, SendOptions.delayed(delay));
+    }
+
+    /** 正常返回仅表示本地已受理；Future 成功才表示 Redis 确认入队或命中防重。
+     * 参数校验和有界 JSON 快照在调用线程执行；不等待 Redis。容量满或关闭时同步抛出 SendRejectedException。
+     * 超时或连接故障可能已经入队；重试应复用消息体和 SendOptions。取消不会撤回已开始的 Redis 请求。
+     * 回调必须轻量；阻塞操作请显式使用调用方的有界执行器，避免延迟后续结果通知。
+     */
+    public CompletableFuture<SendResult> sendAsync(String queue, Object payload, SendOptions sendOptions) {
+        Objects.requireNonNull(payload, "消息体不能为空");
+        Objects.requireNonNull(sendOptions, "发送选项不能为空");
+        Checks.queue(queue);
+        return asyncSender.send(() -> {
+            String encoded = encode(payload);
+            return () -> sendEncoded(queue, encoded, sendOptions);
+        });
+    }
+
+    /** 本实例的异步发送状态；不执行 Redis 或数据库 I/O，不包含同步 send 的统计。 */
+    public AsyncSendStats asyncSendStats() { return asyncSender.stats(); }
+
+    /** 停止异步受理并限时收尾；不关闭宿主 Redis 客户端。消费者句柄仍由创建者管理。 */
+    @Override public void close() { asyncSender.close(); }
+
+    private SendResult sendEncoded(String queue, String encoded, SendOptions sendOptions) {
         registerQueue(queue);
         JsonNode result = json(string(queue, "send", sendOptions.messageId(), encoded, digest(encoded),
                 sendOptions.delay().toMillis(), sendOptions.maxDeliveries(), sendOptions.retryDelay().toMillis(),

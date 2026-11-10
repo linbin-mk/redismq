@@ -5,6 +5,15 @@ import java.time.Duration;
 import static org.junit.jupiter.api.Assertions.*;
 
 class OptionsTest {
+    @Test void validatesProducerBoundsAndTimeouts() {
+        assertThrows(IllegalArgumentException.class, () -> new ProducerOptions(0, 1, Duration.ofSeconds(1), Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ProducerOptions(257, 1, Duration.ofSeconds(1), Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ProducerOptions(1, 0, Duration.ofSeconds(1), Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ProducerOptions(1, 100001, Duration.ofSeconds(1), Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ProducerOptions(1, 1, Duration.ZERO, Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ProducerOptions(1, 1, Duration.ofNanos(1), Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ProducerOptions(1, 1, Duration.ofSeconds(1), Duration.ofMillis(-1)));
+    }
     @Test void rejectsInvalidCapacityAndOversizedMessageConfiguration() {
         assertThrows(IllegalArgumentException.class, () -> new MqOptions(0, 64, Duration.ofHours(1)));
         assertThrows(IllegalArgumentException.class, () -> new MqOptions(10, 65537, Duration.ofHours(1)));

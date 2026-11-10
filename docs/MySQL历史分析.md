@@ -10,7 +10,7 @@
 <dependency>
   <groupId>io.github.linbin-mk</groupId>
   <artifactId>redis-mq-dashboard-mysql</artifactId>
-  <version>0.3.1</version>
+  <version>0.4.0</version>
 </dependency>
 ```
 

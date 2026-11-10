@@ -2,7 +2,7 @@
 
 **简体中文** | [English](README.en.md)
 
-基于 Redis 的 Java 可靠任务队列，提供延时投递、竞争消费、成功确认、超时恢复、失败重试和只读监控看板。
+基于 Redis 的 Java 可靠任务队列，提供同步与有界异步发送、延时投递、竞争消费、成功确认、超时恢复、失败重试和只读监控看板。
 
 ## Maven 引用
 
@@ -21,7 +21,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -33,7 +33,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -45,7 +45,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard-mysql</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -57,7 +57,7 @@
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-core</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -85,9 +85,15 @@
 
 <img src="docs/images/dashboard-message-inspect.jpg" alt="消息投递详情、死信原因和按需读取的 JSON 正文，使用合成示例数据" width="560">
 
-## 0.3.1 更新与升级
+## 0.4.0 更新与升级
 
-移除看板内置认证和 Spring Security 依赖，安全策略由接入项目统一负责。从 `0.3.0` 升级时，删除原 `redis-mq.dashboard.username/password` 配置，并由接入项目为 `/redis-mq/dashboard` 及其全部子路径配置访问控制。
+新增 [`sendAsync`](#异步发送)：独立发送线程池、实例共享的并发和积压限制、容量满快速拒绝、发送超时、取消及关闭收尾。通过 `redis-mq.producer.*` 配置，默认并发 4、等待容量 256、发送超时 5 秒、关闭等待 30 秒。`asyncSendStats()` 提供独立的本机发送统计，纯生产者模式同样自动管理生命周期。
+
+**异步调用正常返回仅表示本地已受理；Future 成功才表示 Redis 已确认入队或命中防重。超时、连接中断可能已入队。** 接入项目在业务事务提交成功后调用，并负责失败日志、业务指标及重试或巡检补偿策略。
+
+从 `0.3.x` 升级无需迁移 Redis 数据或 MySQL 历史表，存储格式保持 2；原有同步 `send` 和构造方式继续兼容。普通 Java 应用使用异步发送后需调用 `mq.close()` 收尾，再由宿主关闭 Redis 客户端。
+
+`0.3.1` 已移除看板内置认证和 Spring Security 依赖，安全策略由接入项目统一负责。从 `0.3.0` 升级时，删除原 `redis-mq.dashboard.username/password` 配置，并由接入项目为 `/redis-mq/dashboard` 及其全部子路径配置访问控制。
 
 新增可选 MySQL 历史分析、有界分钟聚合、跨实例幂等累计、P95 耗时、采集租约、查询扫描上限及默认 5 天滚动回收。分析事件仅在内存累计，不新增 Redis 监控日志。
 
@@ -102,7 +108,9 @@
 ```mermaid
 flowchart LR
     subgraph APP["应用进程 · 支持多个实例"]
-        P["生产者"] --> C["redis-mq-core<br/>RedisMq 公共 API"]
+        P["生产者"] -->|"send"| C["redis-mq-core<br/>RedisMq 公共 API"]
+        P -->|"sendAsync · 本地受理"| A["异步发送运行时<br/>有界并发与积压 · 超时 · 收尾"]
+        A -->|"后台发送 · Redis 确认后完成结果"| C
         S["Spring Boot starter<br/>自动配置 · 注解注册"] --> W["消费运行时<br/>限流 · 续期 · 回调"]
         W -->|"领取 / ACK / 重试 / 续期"| C
         D["可选监控看板<br/>宿主安全策略 · 只读接口"] -->|"查询"| C
@@ -126,7 +134,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    SEND["send()<br/>稳定编号 + JSON"] --> S["待执行 / 延迟<br/>SCHEDULED"]
+    SEND["Redis 确认发送<br/>send / sendAsync · 稳定编号 + JSON"] --> S["待执行 / 延迟<br/>SCHEDULED"]
     S -->|"到期领取 · 投递次数加一"| P["处理中<br/>PROCESSING"]
     P -->|"有效凭证 ACK"| END["结束<br/>正文清理 · 编号按窗口保留"]
     P -->|"失败 / 超时 · 未达上限"| S
@@ -176,6 +184,44 @@ SendResult result = mq.send("task-execution", new TaskRequest("task-001"), optio
 发送超时不代表消息未入队，应使用原消息体和原 `SendOptions` 重试。新的独立任务创建新的发送选项。可通过 `withMessageId()` 指定请求编号，通过 `withDeduplication(key, window)` 设置业务去重窗口。同一编号或窗口内同一去重键对应不同 JSON 内容时拒绝发送。
 
 消息编号在正文存在期间保持防重；完成或取消后默认再保留 24 小时。去重指纹基于序列化后的字节，请求重试时应保持序列化结果一致。
+
+### 异步发送
+
+`sendAsync` 提供与 `send` 对应的即时、延迟和 `SendOptions` 三种重载。正常返回 `CompletableFuture<SendResult>` **仅表示本地受理**；Future 成功才表示 Redis 已确认入队，或确认命中已有消息的防重记录。发送成功不表示消费成功，也不额外提供 Redis 持久化或复制保证。
+
+```java
+import com.mk.mq.SendRejectedException;
+
+// 在业务事务提交成功后执行；事务事件可使用 @TransactionalEventListener(AFTER_COMMIT)。
+SendOptions request = SendOptions.immediate();
+try {
+    mq.sendAsync("task-execution", new TaskRequest("task-001"), request)
+        .whenComplete((result, failure) -> {
+            if (failure != null) {
+                // 记录业务编号、request.messageId()、失败原因和业务指标。
+                // 允许漏投递的业务由后续巡检补齐；需要重试时复用 request 和原消息体。
+                log.warn("异步发送失败，messageId={}", request.messageId(), failure);
+            }
+        });
+} catch (SendRejectedException rejected) {
+    // CAPACITY：本地容量已满；CLOSED：发送器已关闭。该次请求没有交给 Redis。
+    log.warn("异步发送未受理，messageId={}，reason={}", request.messageId(), rejected.reason());
+}
+```
+
+参数校验和有上限的 JSON 快照在调用线程执行，序列化失败同步抛出；返回前不等待 Redis。先预留本地容量再序列化，排队保存 JSON 快照，后续修改原对象不影响消息。并发和等待容量由同一 `RedisMq` 实例的所有队列共享；容量满立即拒绝，不转到调用线程发送。同步 `send` 保持原行为，不受这些异步限制。
+
+发送超时从本地受理开始，包含等待、首次队列登记和 Redis 请求，不包含调用线程的序列化。`SendTimeoutException.outcomeUnknown()` 为 `false` 表示等待超时，任务已移除且不会发送；为 `true` 表示调用已经开始，入队结果未知。连接中断等异常也可能已入队；不能将 Future 异常一律解释为未入队。Redis 侧容量拒绝通过 Future 异常报告，与本地 `SendRejectedException` 区分。
+
+Future 超时或被取消后，仍执行中的底层调用继续占用发送并发和本地容量，直到底层返回。取消等待任务会将其移除；取消执行中任务不会撤回 Redis 写入。组件不增加发送自动重试；底层连接、命令超时及重试由宿主 Redisson 配置决定。并发发送不保证受理顺序就是 Redis 入队顺序，延迟仍从 Redis 执行入队脚本时起算。
+
+结果在组件独立的有界通知线程池中完成；回调应只执行轻量操作，阻塞 I/O 使用调用方自己的有界执行器。已完成 Future 后注册的同步回调及取消回调遵循 `CompletableFuture` 规则，可能在调用线程执行。通知完成前保留本地容量；慢回调会延迟其他结果通知并触发背压。计时任务取消后立即移除，不随吞吐无限积累。
+
+`mq.asyncSendStats()` 无 I/O 地返回本实例受理、成功、防重命中、失败、拒绝、超时、取消、准备数、等待数、执行数、占用数及耗时统计。成功包含防重命中；超时和取消独立于失败统计。统计与 Redis 队列状态、MySQL 历史事件独立，未新增历史表列。业务可采集此快照对接自己的监控。
+
+普通 Java 应用使用后调用 `mq.close()`，先停止受理，在 `producer.shutdown-timeout` 内等待已有发送；超时后未开始任务以 `SendShutdownException(false)` 结束，已开始任务以 `SendShutdownException(true)` 报告结果未知，并尝试中断工作线程。结果通知独立执行；阻塞回调可能延迟通知。关闭不能保证已发出的 Redis 写入被撤销，不关闭外部 `RedissonClient`，也不关闭调用方持有的消费者句柄或禁用同步 API。Spring 会先停止注解消费者、再关闭异步发送，纯生产者模式同样自动收尾；宿主 Redis 生命周期应晚于生产端（生产端 phase 为 `Integer.MAX_VALUE - 200`）。
+
+普通 Java 可通过新增构造参数配置：`new RedisMq(redis, namespace, mqOptions, mapper, producerOptions)`，其中 `ProducerOptions.defaults()` 与下表默认值一致。线程按需创建；只使用同步 API 时不启动异步工作线程。
 
 ## 消费消息
 
@@ -235,6 +281,10 @@ consumer.close();
 | max-processing-time | 5m | 最长执行时间，超过后停止续期并请求中断 |
 | poll-interval | 500ms | 通知丢失或重连时的兜底检查间隔 |
 | shutdown-timeout | 30s | 每个监听器停机时等待回调完成的时间 |
+| producer.concurrency | 4 | 本实例异步发送并发数，1 至 256；独立于消费并发 |
+| producer.max-pending | 256 | 本地等待任务上限，1 至 100000；准备和结果通知也占用总容量（并发数 + 等待上限） |
+| producer.send-timeout | 5s | 本地受理到发送结果的期限，包含排队和队列登记；底层未返回时继续占用并发 |
+| producer.shutdown-timeout | 30s | 异步发送关闭时的总等待预算，可为 0 |
 
 每条消息默认最多投递五次，首次失败延迟五秒，之后指数增长，最大五分钟。可通过 `SendOptions.withRetry()` 指定。领取即计一次投递，未确认的超时领取也消耗次数。
 
@@ -252,7 +302,7 @@ consumer.close();
 
 ## 内嵌监控看板
 
-Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.3.1`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
+Web 应用将依赖改为 `io.github.linbin-mk:redis-mq-dashboard:0.4.0`，即可同时获得核心、starter 和看板。看板默认关闭，通过外部配置启用：
 
 ```yaml
 redis-mq:

@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-A Redis-backed task queue for Java, with delayed delivery, competing consumers, acknowledgments, visibility timeouts, retries, and an optional read-only dashboard.
+A Redis-backed task queue for Java, with synchronous and bounded asynchronous sends, delayed delivery, competing consumers, acknowledgments, visibility timeouts, retries, and an optional read-only dashboard.
 
 ## Maven dependencies
 
@@ -21,7 +21,7 @@ Requires **Java 17+ and Redis 6.2+**. Choose one dependency from Maven Central a
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-spring-boot-starter</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -33,7 +33,7 @@ Supply a `RedissonClient` bean to get an auto-configured `RedisMq`. Consumer thr
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -45,7 +45,7 @@ The dashboard is disabled by default. [Enable it](#embedded-dashboard) and visit
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-dashboard-mysql</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -57,7 +57,7 @@ Persist queue trends, per-minute metrics and P95 latency with a default five-day
 <dependency>
     <groupId>io.github.linbin-mk</groupId>
     <artifactId>redis-mq-core</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -85,9 +85,15 @@ Browse existing messages by state and load delivery counts, failure reasons and 
 
 <img src="docs/images/dashboard-message-inspect.jpg" alt="Delivery details, dead-letter reason and on-demand JSON payload with synthetic example data" width="560">
 
-## What's new in 0.3.1 and upgrading
+## What's new in 0.4.0 and upgrading
 
-Removes built-in dashboard authentication and the Spring Security dependency. The host application owns security. When upgrading from `0.3.0`, remove `redis-mq.dashboard.username/password` and configure host access controls for `/redis-mq/dashboard` and all its subpaths.
+Adds [`sendAsync`](#asynchronous-sends) with a separate worker pool, shared per-instance concurrency and backlog limits, immediate local rejection, send deadlines, cancellation and bounded shutdown. Configure `redis-mq.producer.*`; defaults are 4 concurrent sends, 256 waiting tasks, a 5-second send timeout and a 30-second shutdown budget. `asyncSendStats()` exposes independent local sender statistics. Producer-only Spring applications also get automatic lifecycle management.
+
+**A normal async return means accepted locally; successful Future completion means Redis confirmed insertion or deduplication. A timeout or connection failure may still have inserted the message.** Applications send after the business transaction commits and own failure logging, business metrics and retry or reconciliation policies.
+
+Upgrading from `0.3.x` requires no Redis data or MySQL history schema migration; storage format remains 2. Existing synchronous `send` and constructors remain compatible. Plain Java applications using async sends must call `mq.close()` before shutting down their Redis client.
+
+Since `0.3.1`, built-in dashboard authentication and the Spring Security dependency have been removed. The host application owns security. When upgrading from `0.3.0`, remove `redis-mq.dashboard.username/password` and configure host access controls for `/redis-mq/dashboard` and all its subpaths.
 
 Adds optional MySQL history, bounded per-minute aggregation, idempotent multi-instance counters, P95 histograms, collector leases, query scan limits and a default rolling five-day retention window. Metric events accumulate in memory without adding Redis monitoring logs.
 
@@ -102,7 +108,9 @@ Upgrading from `0.2.0` keeps storage format 2 and requires no additional migrati
 ```mermaid
 flowchart LR
     subgraph APP["Application process · multiple instances supported"]
-        P["Producer"] --> C["redis-mq-core<br/>RedisMq public API"]
+        P["Producer"] -->|"send"| C["redis-mq-core<br/>RedisMq public API"]
+        P -->|"sendAsync · local admission"| A["Async sender runtime<br/>Bounded concurrency and backlog · deadlines · shutdown"]
+        A -->|"Background send · complete after Redis confirmation"| C
         S["Spring Boot starter<br/>Configuration · listener registration"] --> W["Consumer runtime<br/>Concurrency · renewal · callbacks"]
         W -->|"Receive / ACK / retry / renew"| C
         D["Optional dashboard<br/>Host-managed security · read-only"] -->|"Queries"| C
@@ -126,7 +134,7 @@ State and deduplication indexes for one queue share a hash tag and are updated a
 
 ```mermaid
 flowchart LR
-    SEND["send()<br/>Stable ID + JSON"] --> S["Ready or delayed<br/>SCHEDULED"]
+    SEND["Redis-confirmed send<br/>send / sendAsync · stable ID + JSON"] --> S["Ready or delayed<br/>SCHEDULED"]
     S -->|"Receive when due · increment delivery count"| P["In flight<br/>PROCESSING"]
     P -->|"ACK with valid receipt"| END["Finished<br/>Remove payload · retain ID for deduplication"]
     P -->|"Failure / timeout · below delivery limit"| S
@@ -176,6 +184,38 @@ The delay starts when Redis executes the send script. A successfully handled and
 A send timeout does not mean that the message was not enqueued. Retry with the original payload and `SendOptions`. Create new options for a separate task. Use `withMessageId()` for a stable request ID and `withDeduplication(key, window)` for an additional deduplication window. Reusing an ID or an active deduplication key with different JSON content is rejected.
 
 Message IDs remain deduplicated while their payload exists and, by default, for another 24 hours after completion or cancellation. Fingerprints use serialized bytes, so retries must produce the same serialized content.
+
+### Asynchronous sends
+
+`sendAsync` has the same immediate, delay and `SendOptions` overloads as `send`, returning `CompletableFuture<SendResult>`. A normal return means **accepted locally**; successful completion means Redis confirmed insertion or an existing deduplication record. This does not confirm consumption or add durability/replication guarantees.
+
+```java
+// Execute after the business transaction commits, e.g. an AFTER_COMMIT transaction event.
+SendOptions request = SendOptions.immediate();
+try {
+    mq.sendAsync("task-execution", new TaskRequest("task-001"), request)
+        .whenComplete((result, failure) -> {
+            if (failure != null) {
+                log.warn("Async send failed, messageId={}", request.messageId(), failure);
+                // Record business metrics; let reconciliation repair permitted missed deliveries.
+            }
+        });
+} catch (com.mk.mq.SendRejectedException rejected) {
+    log.warn("Send not accepted, messageId={}, reason={}", request.messageId(), rejected.reason());
+}
+```
+
+Validation and size-limited JSON serialization run on the caller, after reserving local capacity; neither queue registration nor insertion waits for Redis on that thread. Queued tasks retain a JSON snapshot rather than the mutable input object. Invalid arguments/serialization fail synchronously. `SendRejectedException` reports local `CAPACITY` or `CLOSED` rejection, with no Redis request for that submission. Redis-side capacity rejection completes the Future exceptionally instead. Limits are shared by all queues on one `RedisMq` instance; synchronous `send` remains independent. Concurrent sends do not guarantee insertion order.
+
+The send deadline starts at local acceptance and covers waiting, queue registration and Redis calls, excluding caller-side serialization. `SendTimeoutException.outcomeUnknown()` is false for expired waiting tasks, which are removed and never sent; true means the underlying call started and may still insert the message. Connection failures may also leave the outcome unknown. Retry with the original payload and `SendOptions` if the application chooses to retry. The component adds no automatic send retries; Redisson connection/command timeouts and retries remain configured by the host.
+
+Timeout or cancellation does not release capacity held by a running Redis call until it returns. Cancellation removes waiting tasks but does not retract started writes. Results complete on a separate bounded notification pool; keep callbacks lightweight and use your own bounded executor for blocking work. Synchronous callbacks registered after completion, and cancellation callbacks, may run on the caller according to normal `CompletableFuture` rules. Slow callbacks retain admission capacity and may delay later notifications. Cancelled deadline tasks are promptly removed.
+
+`mq.asyncSendStats()` returns local counters (accepted, succeeded, duplicates, failed, rejected, timed out, cancelled), preparation/waiting/running/outstanding gauges and elapsed-time totals without I/O. Success includes duplicates; failures exclude timeout and cancellation. These metrics are independent of Redis queue state and the existing MySQL history schema. Applications can export the snapshot to their monitoring system.
+
+Plain Java callers must call `mq.close()` before shutting down the external Redis client. It stops admission and waits up to `producer.shutdown-timeout`; remaining waiting tasks fail with `SendShutdownException(false)`, running tasks with `SendShutdownException(true)` (unknown outcome), and workers are interrupted on a best-effort basis. Notifications remain asynchronous and blocking callbacks can delay them. Closing does not retract writes, close the host Redis client or consumer handles, or disable synchronous operations. Spring stops annotation consumers before draining the producer, including producer-only mode. The host Redis lifecycle must stop later (producer phase: `Integer.MAX_VALUE - 200`).
+
+Configure plain Java via `new RedisMq(redis, namespace, mqOptions, mapper, producerOptions)` using `ProducerOptions.defaults()` or custom values. Threads start on demand; synchronous-only usage starts no async threads.
 
 ## Consume messages
 
@@ -235,6 +275,10 @@ Configuration uses the `redis-mq` prefix and comes from application properties, 
 | max-processing-time | 5m | Stop renewal and request interruption after this processing limit |
 | poll-interval | 500ms | Fallback check interval after missed notifications or reconnection |
 | shutdown-timeout | 30s | Time to wait for callbacks when shutting down each listener |
+| producer.concurrency | 4 | Shared async send concurrency per instance, 1–256 |
+| producer.max-pending | 256 | Waiting task capacity, 1–100000; preparation and result delivery also count toward total capacity (concurrency + pending limit) |
+| producer.send-timeout | 5s | Deadline after acceptance including waiting and registration; running calls retain capacity until the underlying call returns |
+| producer.shutdown-timeout | 30s | Total async sender shutdown budget; zero is allowed |
 
 By default, messages allow five deliveries. The first failure waits five seconds, with exponential backoff capped at five minutes. Configure this with `SendOptions.withRetry()`. Each receive counts as a delivery, including deliveries that time out without acknowledgment.
 
@@ -252,7 +296,7 @@ Dead letters remain until explicitly handled and count toward payload capacity. 
 
 ## Embedded dashboard
 
-Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.3.1` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
+Web applications can depend on `io.github.linbin-mk:redis-mq-dashboard:0.4.0` to include core, starter, and dashboard together. The dashboard is disabled by default. Enable it with external configuration:
 
 ```yaml
 redis-mq:

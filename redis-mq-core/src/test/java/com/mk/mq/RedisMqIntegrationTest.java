@@ -40,6 +40,7 @@ class RedisMqIntegrationTest {
         queues.clear();
     }
     @AfterEach void clean() {
+        mq.close();
         for (String queue : queues) redis.getKeys().delete(mq.storageKeys(queue).toArray(String[]::new));
         redis.getKeys().delete(mq.directoryStorageKey());
     }
@@ -52,6 +53,50 @@ class RedisMqIntegrationTest {
     }
     private static SendOptions fast(int attempts) {
         return SendOptions.immediate().withRetry(attempts, Duration.ofMillis(10), Duration.ofMillis(20));
+    }
+
+    @Test void asyncSendConfirmsRedisDedupAndCapacityFailure() throws Exception {
+        String q = queue("async");
+        SendOptions request = SendOptions.immediate().withMessageId("async-request");
+        SendResult first = mq.sendAsync(q, Map.of("task", "one"), request).get(5, TimeUnit.SECONDS);
+        assertEquals(new SendResult("async-request", false), first);
+        assertNotNull(mq.get(q, first.messageId()));
+        assertEquals(new SendResult(first.messageId(), true),
+                mq.sendAsync(q, Map.of("task", "one"), request).get(5, TimeUnit.SECONDS));
+        var delivery = take(q);
+        assertEquals("one", mq.decode(delivery, Map.class).get("task"));
+        assertTrue(mq.acknowledge(q, delivery));
+        try (RedisMq limited = client(new MqOptions(1, 65536, Duration.ofHours(1)))) {
+            assertNotNull(limited.sendAsync(q, "first", Duration.ofHours(1)).get(5, TimeUnit.SECONDS));
+            var rejectedByRedis = limited.sendAsync(q, "second");
+            Throwable cause = assertThrows(ExecutionException.class, () -> rejectedByRedis.get(5, TimeUnit.SECONDS)).getCause();
+            assertFalse(cause instanceof SendRejectedException);
+            assertTrue(cause.getMessage().contains("MQ_QUEUE_FULL"));
+            assertEquals(1, limited.asyncSendStats().failed());
+        }
+        assertEquals(2, mq.asyncSendStats().succeeded());
+        assertEquals(1, mq.asyncSendStats().duplicates());
+    }
+
+    @Test void asyncBurstIsConfirmedAndConsumableWithoutLoss() throws Exception {
+        String q = queue("async-burst");
+        List<CompletableFuture<SendResult>> sends = new ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            sends.add(mq.sendAsync(q, Map.of("task", i), SendOptions.immediate().withMessageId("async-" + i)));
+        }
+        CompletableFuture.allOf(sends.toArray(CompletableFuture[]::new)).get(10, TimeUnit.SECONDS);
+        Set<String> received = new HashSet<>();
+        while (received.size() < sends.size()) {
+            var batch = mq.receive(q, 100, LEASE);
+            assertFalse(batch.deliveries().isEmpty());
+            for (Delivery delivery : batch.deliveries()) {
+                assertTrue(received.add(delivery.message().id()));
+                assertTrue(mq.acknowledge(q, delivery));
+            }
+        }
+        assertEquals(200, received.size()); assertEquals(0, mq.stats(q).total());
+        assertEquals(200, mq.asyncSendStats().succeeded());
+        await(() -> mq.asyncSendStats().outstanding() == 0);
     }
     static void await(BooleanSupplier condition) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);

@@ -2,6 +2,7 @@ package com.mk.mq.spring;
 
 import com.mk.mq.ConsumerOptions;
 import com.mk.mq.MqOptions;
+import com.mk.mq.ProducerOptions;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
@@ -22,6 +23,26 @@ public class RedisMqProperties {
     private Duration maxProcessingTime = Duration.ofMinutes(5);
     private Duration pollInterval = Duration.ofMillis(500);
     private Duration shutdownTimeout = Duration.ofSeconds(30);
+    private final Producer producer = new Producer();
+
+    public Producer getProducer() { return producer; }
+
+    public static class Producer {
+        private int concurrency = 4;
+        private int maxPending = 256;
+        private Duration sendTimeout = Duration.ofSeconds(5);
+        private Duration shutdownTimeout = Duration.ofSeconds(30);
+
+        public ProducerOptions options() { return new ProducerOptions(concurrency, maxPending, sendTimeout, shutdownTimeout); }
+        public int getConcurrency() { return concurrency; }
+        public void setConcurrency(int value) { concurrency = value; }
+        public int getMaxPending() { return maxPending; }
+        public void setMaxPending(int value) { maxPending = value; }
+        public Duration getSendTimeout() { return sendTimeout; }
+        public void setSendTimeout(Duration value) { sendTimeout = value; }
+        public Duration getShutdownTimeout() { return shutdownTimeout; }
+        public void setShutdownTimeout(Duration value) { shutdownTimeout = value; }
+    }
 
     public MqOptions mqOptions() { return new MqOptions(maxQueueSize, maxMessageBytes, idempotencyRetention, maxQueueBytes, maxDedupEntries, maxRegisteredQueues); }
     public ConsumerOptions consumerOptions(int overrideConcurrency) {
